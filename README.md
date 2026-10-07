@@ -242,7 +242,7 @@ For the full developer guide including manifest field reference and `PrismConnec
 ## Quickstart
 
 ```bash
-git clone https://github.com/arpjw/robinhood
+git clone https://github.com/arpjw/velocity
 pip install -r requirements.txt
 cp .env.example .env
 # Fill in KALSHI_API_KEY, KALSHI_PRIVATE_KEY_PATH, and other vars

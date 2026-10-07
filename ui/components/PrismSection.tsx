@@ -308,7 +308,7 @@ function ConnectorCard({ connector }: { connector: (typeof CONNECTORS)[0] }) {
 
       {connector.custom && (
         <a
-          href="https://github.com/aryasomu/robinhood/blob/main/CONTRIBUTING_CONNECTORS.md"
+          href="https://github.com/arpjw/velocity/blob/main/CONTRIBUTING_CONNECTORS.md"
           target="_blank"
           rel="noopener noreferrer"
           style={{

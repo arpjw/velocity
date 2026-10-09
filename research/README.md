@@ -4,7 +4,7 @@ This study measures whether a specific Kalshi Fed contract moves before a chosen
 
 ## Inputs
 
-`events.csv` columns:
+Copy `research/events.example.csv` to `data/events.csv`, then add one reviewed row per exact contract and equity pair. Its columns are:
 
 | Column | Meaning |
 | --- | --- |
@@ -25,7 +25,7 @@ For prospective shadow data, run `python main.py --dry-run` and export the Kalsh
 
 ```bash
 python -m scripts.fetch_kalshi_history --event-ticker KXFED-26OCT --start 2026-10-28T16:00:00Z --end 2026-10-28T22:00:00Z --output data/kxfed-26oct.csv
-python -m scripts.run_event_study --events research/events.csv --kalshi-csv data/kxfed-26oct.csv --equity-csv data/equity-minute.csv --output research/report.json
+python -m scripts.run_event_study --events data/events.csv --kalshi-csv data/kxfed-26oct.csv --equity-csv data/equity-minute.csv --output data/report.json
 ```
 
 The event date above is illustrative. Use the actual public release timestamp and a window with prerelease and postrelease observations. Supply multiple events before interpreting the train and later chronological holdout summaries.

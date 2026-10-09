@@ -1,4 +1,6 @@
-# Robinhood Velocity Signal Engine — UI Build Plan
+# Robinhood Velocity Signal Engine — original UI brief
+
+This is the historical design brief. It includes simulated signals, older API fields, and a proposed live execution flow. For current behavior and status, see `README.md` and the `ui/` source.
 
 One prompt. Build the full landing page as a Next.js app deployable to Vercel at robinhood.aryasomu.com.
 

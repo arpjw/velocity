@@ -34,7 +34,7 @@ export default function Header() {
       </a>
       <nav style={{ display: 'flex', gap: '24px' }}>
         {[
-          { label: 'GitHub', href: 'https://github.com/aryasomu' },
+          { label: 'GitHub', href: 'https://github.com/arpjw/velocity' },
           { label: 'arya somu', href: 'https://aryasomu.com' },
         ].map(({ label, href }) => (
           <a

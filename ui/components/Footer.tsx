@@ -34,7 +34,7 @@ export default function Footer() {
 
           <div style={{ display: 'flex', gap: '24px', justifyContent: 'center' }}>
             {[
-              { label: 'GitHub', href: 'https://github.com/aryasomu' },
+              { label: 'GitHub', href: 'https://github.com/arpjw/velocity' },
               { label: 'aryasomu.com', href: 'https://aryasomu.com' },
             ].map(({ label, href }) => (
               <a
@@ -64,7 +64,7 @@ export default function Footer() {
               letterSpacing: '0.05em',
             }}
           >
-            v3.0 // 4 PRISM CONNECTORS // MOCK MODE
+            RESEARCH PROJECT // SHADOW MODE
           </div>
         </div>
       </div>

@@ -21,7 +21,7 @@ _SYSTEM_PROMPT = (
 
 class SignalGatekeeper:
     def __init__(self) -> None:
-        self._enabled = os.getenv("GATEKEEPER_ENABLED", "true").lower() not in ("0", "false", "no")
+        self._enabled = os.getenv("GATEKEEPER_ENABLED", "false").lower() not in ("0", "false", "no")
         self._threshold = float(os.getenv("VELOCITY_THRESHOLD", "0.15"))
         self._fast_path_multiplier = float(os.getenv("GATEKEEPER_FAST_PATH_MULTIPLIER", "2.0"))
         self._log_path = Path(os.getenv("GATEKEEPER_LOG_PATH", "logs/gatekeeper.jsonl"))

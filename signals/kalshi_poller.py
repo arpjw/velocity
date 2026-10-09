@@ -17,12 +17,12 @@ from cryptography.hazmat.primitives.asymmetric import padding
 from cryptography.hazmat.primitives.asymmetric.rsa import RSAPrivateKey
 
 from signals.velocity import PricePoint, VelocitySignal, VelocityTracker
+from signals.kalshi_market_data import KALSHI_BASE_URL, source_time_from_ms
+from research.observation_log import append_observation
 
-KALSHI_BASE_URL = os.getenv(
-    "KALSHI_BASE_URL", "https://api.elections.kalshi.com/trade-api/v2"
-)
+KALSHI_BASE_URL = os.getenv("KALSHI_BASE_URL", KALSHI_BASE_URL)
 KALSHI_WS_URL = os.getenv(
-    "KALSHI_WS_URL", "wss://api.elections.kalshi.com/trade-api/v2/ws/v2"
+    "KALSHI_WS_URL", "wss://external-api-ws.kalshi.com/trade-api/ws/v2"
 )
 SIGNAL_LOG_PATH = Path(os.getenv("SIGNAL_LOG_PATH", "logs/signals.jsonl"))
 DEBUG_AUTH = os.getenv("KALSHI_DEBUG_AUTH", "").lower() in ("1", "true", "yes")
@@ -51,10 +51,7 @@ def _sign_request(
 ) -> dict[str, str]:
     parsed = urlparse(url)
     path = parsed.path
-    if parsed.query:
-        path = f"{path}?{parsed.query}"
-
-    timestamp_s = str(int(time.time()))
+    timestamp_s = str(int(time.time() * 1000))
     msg_string = timestamp_s + method.upper() + path
 
     if DEBUG_AUTH:
@@ -81,7 +78,6 @@ def _sign_request(
     if DEBUG_AUTH:
         printable = {k: v if k != "KALSHI-ACCESS-SIGNATURE" else v[:16] + "…" for k, v in headers.items()}
         logger.debug("KALSHI_AUTH_DEBUG headers=%s", printable)
-        print(f"[KALSHI AUTH DEBUG]\n  timestamp_s  : {timestamp_s}\n  msg_string   : {msg_string!r}\n  headers      : {dict(headers)}", flush=True)
 
     return headers
 
@@ -118,13 +114,13 @@ class KalshiPoller:
         self._tracker = tracker
         self._use_websocket = use_websocket
         private_key_path = private_key_path or os.getenv("KALSHI_PRIVATE_KEY_PATH")
-        if not private_key_path:
-            raise ValueError(
-                "KALSHI_PRIVATE_KEY_PATH must be set — Kalshi v2 requires RSA-PSS signing"
-            )
-        self._private_key = _load_private_key(private_key_path)
+        self._private_key = _load_private_key(private_key_path) if private_key_path else None
+        if not api_key or self._private_key is None:
+            self._use_websocket = False
 
     def _ws_auth_headers(self) -> dict[str, str]:
+        if self._private_key is None:
+            raise RuntimeError("Kalshi WebSocket requires an API key and private key")
         auth_url = KALSHI_WS_URL.replace("wss://", "https://")
         return _sign_request(self._key_id, self._private_key, "GET", auth_url)
 
@@ -133,7 +129,7 @@ class KalshiPoller:
             "id": 1,
             "cmd": "subscribe",
             "params": {
-                "channels": ["ticker", "orderbook_delta"],
+                "channels": ["ticker"],
                 "market_tickers": self._tracked,
             },
         }
@@ -154,17 +150,24 @@ class KalshiPoller:
 
         msg = data.get("msg", {})
         market_ticker = msg.get("market_ticker")
-        yes_price = msg.get("yes_price")
-        volume = msg.get("volume", 0)
+        price = msg.get("price_dollars")
+        volume = msg.get("volume_fp")
 
-        if market_ticker not in self._tracked or yes_price is None:
+        if market_ticker not in self._tracked or price is None or volume is None:
             return
-
-        now = datetime.now(tz=timezone.utc)
-        point = PricePoint(
-            timestamp=now,
-            price=_normalize_price(int(yes_price)),
-            volume=int(volume),
+        try:
+            price_value = float(price)
+            volume_value = int(float(volume))
+        except (TypeError, ValueError):
+            return
+        if not 0 <= price_value <= 1:
+            return
+        timestamp = source_time_from_ms(msg.get("ts_ms")) or datetime.now(tz=timezone.utc)
+        point = PricePoint(timestamp=timestamp, price=price_value, volume=volume_value)
+        append_observation(
+            source="kalshi", ticker=market_ticker, source_timestamp=timestamp,
+            price=price_value, volume=volume_value,
+            bid=msg.get("yes_bid_dollars"), ask=msg.get("yes_ask_dollars"),
         )
         signal = self._tracker.update(market_ticker, point)
         if signal is not None:
@@ -222,9 +225,8 @@ class KalshiPoller:
         self, client: httpx.AsyncClient, ticker: str
     ) -> dict | None:
         url = f"{KALSHI_BASE_URL}/markets/{ticker}"
-        headers = _sign_request(self._key_id, self._private_key, "GET", url)
         try:
-            resp = await client.get(url, headers=headers)
+            resp = await client.get(url)
             resp.raise_for_status()
             return resp.json().get("market")
         except httpx.HTTPStatusError as exc:
@@ -252,14 +254,22 @@ class KalshiPoller:
         for ticker, market in zip(self._tracked, results):
             if market is None:
                 continue
-            price_cents = market.get("last_price")
-            volume = market.get("volume", 0)
-            if price_cents is None:
+            price = market.get("last_price_dollars")
+            volume = market.get("volume_fp")
+            if price is None or volume is None:
                 continue
-            point = PricePoint(
-                timestamp=now,
-                price=_normalize_price(int(price_cents)),
-                volume=int(volume),
+            try:
+                price_value = float(price)
+                volume_value = int(float(volume))
+            except (TypeError, ValueError):
+                continue
+            if not 0 <= price_value <= 1:
+                continue
+            point = PricePoint(timestamp=now, price=price_value, volume=volume_value)
+            append_observation(
+                source="kalshi", ticker=ticker, source_timestamp=now,
+                price=price_value, volume=volume_value,
+                bid=market.get("yes_bid_dollars"), ask=market.get("yes_ask_dollars"),
             )
             signal = self._tracker.update(ticker, point)
             if signal is not None:

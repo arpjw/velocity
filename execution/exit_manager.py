@@ -125,7 +125,16 @@ class ExitManager:
 
             if reason:
                 exit_side = "sell" if pos.side == "buy" else "buy"
-                self._client.submit_order(pos.ticker, exit_side, pos.size, pos.strategy_id)
+                try:
+                    exit_order = self._client.submit_order(pos.ticker, exit_side, pos.size, pos.strategy_id)
+                except Exception as exc:
+                    logger.error("exit submission failed for %s: %s", pos.ticker, exc)
+                    to_keep.append(pos)
+                    continue
+                if exit_order.get("status") != "filled":
+                    logger.warning("exit for %s is pending; retaining position", pos.ticker)
+                    to_keep.append(pos)
+                    continue
                 if self._exposure_manager is not None and pos.contract_slug:
                     self._exposure_manager.register_close(pos.contract_slug, pos.ticker)
                 logger.info(

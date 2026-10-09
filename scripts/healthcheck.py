@@ -12,17 +12,7 @@ load_dotenv()
 
 import httpx
 
-REQUIRED_VARS = [
-    "KALSHI_API_KEY",
-    "KALSHI_PRIVATE_KEY_PATH",
-    "POLYMARKET_API_KEY",
-    "POLYMARKET_ADDRESS",
-    "EXECUTION_MODE",
-    "PORTFOLIO_VALUE",
-    "MAX_POSITION_PCT",
-]
-
-KALSHI_PROBE_URL = "https://api.elections.kalshi.com/trade-api/v2/exchange/status"
+KALSHI_PROBE_URL = "https://external-api.kalshi.com/trade-api/v2/exchange/status"
 POLYMARKET_PROBE_URL = "https://clob.polymarket.com/markets?limit=1"
 
 
@@ -47,11 +37,9 @@ def main() -> None:
 
     print("=== Robinhood Velocity Signal — Health Check ===\n")
 
-    print("1. Required environment variables")
-    for var in REQUIRED_VARS:
-        val = os.getenv(var)
-        ok = bool(val)
-        all_ok = check(var, ok, "(not set)" if not ok else "") and all_ok
+    print("1. Execution mode")
+    mode = os.getenv("EXECUTION_MODE", "shadow")
+    all_ok = check("execution mode", mode in ("shadow", "mock"), mode) and all_ok
 
     print("\n2. Kalshi private key file")
     key_path = os.getenv("KALSHI_PRIVATE_KEY_PATH", "")
@@ -64,7 +52,7 @@ def main() -> None:
             is_pem = content.strip().startswith("-----BEGIN")
             all_ok = check("key file is valid PEM", is_pem) and all_ok
     else:
-        all_ok = check("key file (skipped — path not set)", False) and all_ok
+        check("key file (optional for public REST polling)", True)
 
     print("\n3. Kalshi API reachability")
     try:
@@ -82,14 +70,11 @@ def main() -> None:
     except Exception as exc:
         all_ok = check("Polymarket CLOB API", False, str(exc)) and all_ok
 
-    print("\n5. Live mode MCP URL")
-    mode = os.getenv("EXECUTION_MODE", "mock")
+    print("\n5. Execution boundary")
     if mode == "live":
-        mcp_url = os.getenv("ROBINHOOD_MCP_URL", "")
-        ok = bool(mcp_url)
-        all_ok = check("ROBINHOOD_MCP_URL (required for live)", ok) and all_ok
+        all_ok = check("live execution", False, "disabled pending fill reconciliation") and all_ok
     else:
-        check("ROBINHOOD_MCP_URL (not required in mock mode)", True)
+        check("Robinhood MCP (not required)", True)
 
     print("\n6. Logs directory")
     logs_dir = Path("logs")
@@ -171,7 +156,7 @@ def main() -> None:
             warn("oracle output unreadable", str(exc))
 
     print("\n10. Gatekeeper (Anthropic API)")
-    gatekeeper_enabled = os.getenv("GATEKEEPER_ENABLED", "true").lower() not in ("0", "false", "no")
+    gatekeeper_enabled = os.getenv("GATEKEEPER_ENABLED", "false").lower() not in ("0", "false", "no")
     if not gatekeeper_enabled:
         print("  [INFO] GATEKEEPER_ENABLED=false — skipping Anthropic API check")
     else:
@@ -180,40 +165,13 @@ def main() -> None:
             warn("ANTHROPIC_API_KEY not set — gatekeeper will fail at runtime")
         else:
             check("ANTHROPIC_API_KEY present", True)
-            try:
-                import anthropic
-                from datetime import datetime, timezone
-                from signals.velocity import VelocitySignal
-
-                client = anthropic.Anthropic(api_key=api_key)
-                probe_signal = {
-                    "contract_id": "HEALTHCHECK",
-                    "source": "healthcheck",
-                    "velocity": 0.20,
-                    "threshold": 0.15,
-                    "velocity_window_minutes": 5,
-                    "dedup_window_minutes": 30,
-                    "equity_basket": [],
-                }
-                response = client.messages.create(
-                    model="claude-sonnet-4-6",
-                    max_tokens=64,
-                    system='Respond with JSON only: {"approved": true, "confidence": 1.0, "reason": "healthcheck"}',
-                    messages=[{"role": "user", "content": json.dumps(probe_signal)}],
-                )
-                text = next((b.text for b in response.content if b.type == "text"), "").strip()
-                parsed = json.loads(text)
-                ok = "approved" in parsed and "confidence" in parsed
-                all_ok = check("Anthropic API reachable and gatekeeper response valid", ok) and all_ok
-            except Exception as exc:
-                all_ok = check("Anthropic API reachable", False, str(exc)) and all_ok
 
     print()
     if all_ok:
         print("All checks passed.")
         sys.exit(0)
     else:
-        print("One or more checks failed. Fix the issues above before running live.")
+        print("One or more checks failed. Fix the issues above before running shadow mode.")
         sys.exit(1)
 
 

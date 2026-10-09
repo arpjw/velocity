@@ -1,17 +1,15 @@
 const signalLayer = [
-  { name: 'Kalshi REST + WebSocket', desc: 'Primary signal source. RSA-PSS authenticated polling with WebSocket fallback and exponential backoff.' },
-  { name: 'Polymarket CLOB', desc: 'Secondary signal feed via py-clob-client. Contributes to shared VelocityTracker.' },
-  { name: 'VelocityTracker', desc: 'Custom Δp/Δt engine with configurable rolling windows (default: 5m, 15m). Threshold-filtered.' },
-  { name: 'SignalDeduplicator', desc: 'Per-slug and per-sector deduplication. Sector cap enforcement prevents correlated flood.' },
-  { name: 'ConfidenceDecay', desc: 'Price centrality adjustment. Discounts signals near historical extremes where edge is thinner.' },
+  { name: 'Kalshi REST + WebSocket', desc: 'Discovers active KXFED markets and records public prices with source and receipt times.' },
+  { name: 'Polymarket CLOB', desc: 'Resolves outcome asset IDs before subscribing to market updates.' },
+  { name: 'VelocityTracker', desc: 'Tracks configurable price-change windows and creates candidate signals.' },
+  { name: 'Observation log', desc: 'Persists raw market observations for prospective analysis.' },
+  { name: 'Point-in-time event study', desc: 'Aligns exact Fed contracts with minute equity bars, latency, costs, and holdout checks.' },
 ]
 
 const executionLayer = [
-  { name: 'Robinhood Agentic MCP', desc: 'Live execution endpoint at agent.robinhood.com. Requires EXECUTION_MODE=live and private beta access.' },
-  { name: 'MockMCPClient', desc: 'Paper trading mode. Orders logged to logs/mock_orders.jsonl with full metadata. Default mode.' },
-  { name: 'ExposureManager', desc: 'Macro factor cap enforcement. 15% per-factor, 40% gross total. Checked before every order.' },
-  { name: 'ExitManager', desc: 'Time-decay primary exits (2h default). Reverse velocity and adverse move (3%) secondary exits.' },
-  { name: 'rich dashboard', desc: 'Terminal UI refreshing every 5s. Reads orders.jsonl, tracks open positions, shows unrealized P&L.' },
+  { name: 'Shadow mode', desc: 'Default mode records candidates without submitting any orders.' },
+  { name: 'MockMCPClient', desc: 'Optional simulation path for exercising execution code. Mock fills are not market evidence.' },
+  { name: 'Live order guard', desc: 'Order placement is blocked until verified fills and exits can be reconciled.' },
 ]
 
 export default function StackSection() {
@@ -39,8 +37,8 @@ export default function StackSection() {
           }}
           className="stack-grid"
         >
-          <StackColumn title="Signal Layer" items={signalLayer} />
-          <StackColumn title="Execution Layer" items={executionLayer} />
+          <StackColumn title="Research pipeline" items={signalLayer} />
+          <StackColumn title="Execution status" items={executionLayer} />
         </div>
       </div>
 

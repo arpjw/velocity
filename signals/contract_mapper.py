@@ -15,5 +15,8 @@ class ContractMapper:
                 return value
         return None
 
+    def get_execution_basket(self, market_ticker: str) -> dict | None:
+        return self._map.get(market_ticker)
+
     def get_all_slugs(self) -> list[str]:
         return list(self._map.keys())

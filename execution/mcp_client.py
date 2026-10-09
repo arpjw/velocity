@@ -15,9 +15,6 @@ from execution.oauth_pkce import get_valid_token
 
 ORDER_LOG_PATH = Path(os.getenv("ORDER_LOG_PATH", "logs/orders.jsonl"))
 
-_CANCELABLE_STATES = {"new", "queued", "confirmed", "unconfirmed", "partially_filled"}
-
-
 class MCPClient(Protocol):
     def submit_order(
         self, ticker: str, side: str, size: float, strategy_id: str
@@ -131,13 +128,16 @@ class LiveMCPClient:
                 return await session.call_tool(tool_name, arguments=arguments)
 
     def _parse(self, result) -> dict | list:
+        if getattr(result, "isError", False) is True:
+            raise RuntimeError("Robinhood MCP tool returned an error")
         content = result.content[0].text if result.content else "{}"
         return json.loads(content) if isinstance(content, str) else content
 
     def get_account_id(self) -> str:
         if self._account_number:
             return self._account_number
-        data = self._parse(self._run(self._call_tool("get_accounts", {})))
+        raw = self._parse(self._run(self._call_tool("get_accounts", {})))
+        data = raw.get("data", raw) if isinstance(raw, dict) else raw
         accounts: list[dict] = []
         if isinstance(data, dict):
             accounts = data.get("accounts", [data])
@@ -147,43 +147,12 @@ class LiveMCPClient:
             if acct.get("agentic_allowed"):
                 self._account_number = acct["account_number"]
                 return self._account_number
-        if accounts:
-            self._account_number = accounts[0]["account_number"]
-            return self._account_number
-        raise RuntimeError("No brokerage accounts found")
+        raise RuntimeError("No explicitly agentic-enabled brokerage account found")
 
     def submit_order(
         self, ticker: str, side: str, size: float, strategy_id: str
     ) -> dict:
-        account_number = self.get_account_id()
-        order_args = {
-            "account_number": account_number,
-            "symbol": ticker,
-            "side": side,
-            "type": "market",
-            "dollar_amount": f"{size:.2f}",
-        }
-        self._run(self._call_tool("review_equity_order", order_args))
-        ref_id = str(uuid.uuid4())
-        result = self._run(
-            self._call_tool("place_equity_order", {**order_args, "ref_id": ref_id})
-        )
-        response = self._parse(result)
-        if isinstance(response, list):
-            response = response[0] if response else {}
-        order = {
-            "id": response.get("id", ref_id),
-            "timestamp": datetime.now(tz=timezone.utc).isoformat(),
-            "ticker": ticker,
-            "side": side,
-            "size": size,
-            "strategy_id": strategy_id,
-            "status": response.get("state", "submitted"),
-            "mode": "live",
-            "mcp_response": response,
-        }
-        _log_order(order)
-        return order
+        raise RuntimeError("Live order placement is disabled until fills and exits are reconciled")
 
     def get_positions(self) -> list[dict]:
         account_number = self.get_account_id()
@@ -197,30 +166,7 @@ class LiveMCPClient:
         return data if isinstance(data, list) else []
 
     def cancel_all(self, strategy_id: str) -> int:
-        account_number = self.get_account_id()
-        data = self._parse(
-            self._run(
-                self._call_tool(
-                    "get_equity_orders",
-                    {"account_number": account_number, "placed_agent": "agentic"},
-                )
-            )
-        )
-        if isinstance(data, dict):
-            orders = data.get("orders", data.get("results", []))
-        else:
-            orders = data if isinstance(data, list) else []
-        cancelled = 0
-        for order in orders:
-            if order.get("state") in _CANCELABLE_STATES:
-                self._run(
-                    self._call_tool(
-                        "cancel_equity_order",
-                        {"account_number": account_number, "order_id": order["id"]},
-                    )
-                )
-                cancelled += 1
-        return cancelled
+        raise RuntimeError("Live order cancellation is disabled until strategy ownership is reconciled")
 
     def get_quote(self, ticker: str) -> dict:
         data = self._parse(
@@ -260,10 +206,7 @@ def _log_order(order: dict) -> None:
 def make_client() -> Union[MockMCPClient, LiveMCPClient]:
     mode = os.getenv("EXECUTION_MODE", "mock")
     if mode == "live":
-        mcp_url = os.getenv("ROBINHOOD_MCP_URL")
-        if not mcp_url:
-            raise RuntimeError(
-                "EXECUTION_MODE=live requires ROBINHOOD_MCP_URL to be set"
-            )
-        return LiveMCPClient(mcp_url=mcp_url)
+        raise RuntimeError("EXECUTION_MODE=live is disabled pending fill reconciliation and verified exits")
+    if mode not in ("mock", "shadow"):
+        raise ValueError(f"Unknown EXECUTION_MODE: {mode}")
     return MockMCPClient()

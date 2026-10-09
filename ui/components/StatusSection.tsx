@@ -1,17 +1,17 @@
 const statuses = [
   {
-    label: 'Signal Engine (Phase 0-1)',
-    badge: 'COMPLETE',
+    label: 'Public market data adapters',
+    badge: 'BUILT',
     color: { bg: '#14532d', text: '#86efac' },
   },
   {
-    label: 'Mock Execution + Backtest (Phase 1)',
-    badge: 'COMPLETE',
+    label: 'Event study + shadow observation log',
+    badge: 'BUILT',
     color: { bg: '#14532d', text: '#86efac' },
   },
   {
-    label: 'Live MCP Execution (Phase 2)',
-    badge: 'AWAITING ACCESS',
+    label: 'Validated trading edge and live execution',
+    badge: 'NOT READY',
     color: { bg: '#451a03', text: '#fbbf24' },
   },
 ]
@@ -30,7 +30,7 @@ export default function StatusSection() {
             marginBottom: '48px',
           }}
         >
-          06 // STATUS
+          05 // STATUS
         </div>
 
         <div
@@ -101,10 +101,9 @@ export default function StatusSection() {
                 lineHeight: 1.6,
               }}
             >
-              Live execution requires Robinhood agentic trading account access, currently in
-              private beta. Set{' '}
-              <span style={{ color: 'var(--neon)' }}>EXECUTION_MODE=live</span> only after
-              receiving access confirmation.
+              <span style={{ color: 'var(--neon)' }}>EXECUTION_MODE=shadow</span> is the default.
+              Live execution is disabled until the strategy has credible out-of-sample evidence
+              and orders and fills can be reconciled safely.
             </p>
           </div>
         </div>

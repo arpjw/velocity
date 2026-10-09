@@ -41,6 +41,7 @@ def make_pos(
 
 def make_manager(tracker=None, exposure_manager=None) -> tuple[ExitManager, MagicMock]:
     client = MagicMock()
+    client.submit_order.return_value = {"status": "filled"}
     mgr = ExitManager(
         client=client,
         price_fetcher=lambda tickers: {t: 100.0 for t in tickers},

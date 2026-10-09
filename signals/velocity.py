@@ -24,6 +24,7 @@ class VelocitySignal:
     timestamp: datetime
     price: float
     volume_delta: int
+    source: str = "unknown"
 
 
 def compute_velocity(points: list[PricePoint], window_minutes: int) -> float:

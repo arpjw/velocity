@@ -11,9 +11,9 @@ const cards = [
         />
       </svg>
     ),
-    title: 'Equity markets lag.',
+    title: 'An open question.',
     titleFont: 'serif' as const,
-    body: 'Prediction markets are purpose-built for rapid repricing. When new information arrives, contract probabilities update in seconds. Equity prices take minutes.',
+    body: 'A fast change in a contract price might lead a related equity, or both markets might react to the same announcement. The event study measures which moved first.',
   },
   {
     icon: (
@@ -36,9 +36,9 @@ const cards = [
         />
       </svg>
     ),
-    title: 'Δp/Δt > 0.15',
+    title: 'Measure velocity.',
     titleFont: 'mono' as const,
-    body: 'A probability velocity exceeding 0.15 units per minute, confirmed by a volume spike, indicates genuine information arrival — not noise. Two conditions must hold simultaneously.',
+    body: 'The research pipeline evaluates a price change and traded volume using only observations available at the time. Thresholds are tested for sensitivity, not treated as proof of information.',
   },
   {
     icon: (
@@ -64,9 +64,9 @@ const cards = [
         />
       </svg>
     ),
-    title: 'A 2-hour window.',
+    title: 'Account for costs.',
     titleFont: 'serif' as const,
-    body: 'Positions are held until the equity market reprices or 2 hours elapse — whichever comes first. The thesis is information diffusion speed, not prediction.',
+    body: 'A hypothetical two-hour horizon includes delayed entry and transaction costs. Results are compared with prerelease moves, public news direction, and a chronological holdout.',
   },
 ]
 
@@ -96,7 +96,7 @@ export default function SignalSection() {
             marginBottom: '64px',
           }}
         >
-          Velocity, not probability.
+          A hypothesis to measure.
         </h2>
 
         <div className="signal-grid">

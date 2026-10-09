@@ -24,6 +24,7 @@ from signals.deduplicator import SignalDeduplicator
 from signals.gatekeeper import SignalGatekeeper
 from signals.market_hours import MarketHoursGuard
 from signals.velocity import VelocitySignal, VelocityTracker
+from research.observation_log import append_shadow_signal
 
 logging.basicConfig(
     level=logging.INFO,
@@ -124,16 +125,16 @@ async def _submit_signal(
         return
 
     _signal_count += 1
-    basket = mapper.get_basket(signal.contract_slug)
+    basket = mapper.get_execution_basket(signal.contract_slug)
     if basket is None:
-        logger.info("no basket mapped for %s", signal.contract_slug)
+        logger.info("no outcome-specific execution basket for %s", signal.contract_slug)
         return
 
     if gatekeeper is not None:
         dedup_window = int(os.getenv("DEDUP_WINDOW_MINUTES", "30"))
         signal = await gatekeeper.evaluate(
             signal,
-            source=getattr(signal, "_source", "unknown"),
+            source=signal.source,
             basket=basket,
             dedup_window_minutes=dedup_window,
         )
@@ -150,9 +151,21 @@ async def _submit_signal(
                 size_multiplier = size_multiplier * float(gc)
 
     side = determine_side(signal.velocity, basket["direction"])
+    if side != "buy":
+        logger.info("sell entry skipped for %s: short execution is not implemented", signal.contract_slug)
+        return
     sizes = size_basket(basket, velocity=signal.velocity)
     if size_multiplier != 1.0:
         sizes = {t: round(s * size_multiplier, 2) for t, s in sizes.items()}
+
+    entry_prices = await asyncio.to_thread(yfinance_price_fetcher, list(sizes))
+    sizes = {
+        ticker: size for ticker, size in sizes.items()
+        if entry_prices.get(ticker, 0) > 0 and size > 0
+    }
+    if not sizes:
+        logger.warning("no valid equity entry prices for %s", signal.contract_slug)
+        return
 
     total_size = sum(sizes.values())
     can_open, reason = exposure_manager.can_open(signal.contract_slug, total_size)
@@ -174,7 +187,14 @@ async def _submit_signal(
     )
 
     for ticker, dollar_size in sizes.items():
-        order = client.submit_order(ticker, side, dollar_size, strategy_id)
+        try:
+            order = client.submit_order(ticker, side, dollar_size, strategy_id)
+        except Exception as exc:
+            logger.error("order submission failed for %s: %s", ticker, exc)
+            continue
+        if order.get("status") != "filled":
+            logger.warning("order is not filled for %s; exposure not registered", ticker)
+            continue
         _order_count += 1
         exposure_manager.register_open(signal.contract_slug, ticker, dollar_size)
         exit_manager.register(
@@ -190,7 +210,7 @@ async def _submit_signal(
                 entry_velocity=signal.velocity,
                 exit_hours=float(basket.get("exit_hours", 2.0)),
                 exit_adverse_pct=float(basket.get("exit_adverse_pct", 0.03)),
-                entry_price=None,
+                entry_price=entry_prices[ticker],
             )
         )
 
@@ -206,8 +226,27 @@ async def handle_signal(
     gatekeeper: SignalGatekeeper | None = None,
     session_memory: SessionMemory | None = None,
 ) -> None:
+    global _signal_count
     if session_memory:
         session_memory.record_fired()
+
+    if os.getenv("EXECUTION_MODE", "shadow") == "shadow":
+        _signal_count += 1
+        basket = mapper.get_basket(signal.contract_slug)
+        append_shadow_signal({
+            "observed_at": datetime.now(tz=timezone.utc).isoformat(),
+            "timestamp": signal.timestamp.isoformat(),
+            "source": signal.source,
+            "contract_slug": signal.contract_slug,
+            "price": signal.price,
+            "velocity": signal.velocity,
+            "volume_delta": signal.volume_delta,
+            "equity_market_open": hours_guard.is_open(),
+            "hypothesis_basket": basket.get("basket", []) if basket else [],
+        })
+        if session_memory:
+            session_memory.write_snapshot(client)
+        return
 
     if not hours_guard.is_open():
         mode = os.getenv("OFF_HOURS_MODE", "suppress")
@@ -297,7 +336,7 @@ def _print_startup_banner(
 
     connectors = registry.get_all()
 
-    banner = "DRY RUN MODE — forced mock execution" if dry_run else ""
+    banner = "DRY RUN MODE — shadow signals only" if dry_run else ""
     print("=" * 60)
     if banner:
         print(f"  *** {banner} ***")
@@ -324,14 +363,14 @@ async def main() -> None:
     parser.add_argument(
         "--dry-run",
         action="store_true",
-        help="Run full pipeline in mock mode regardless of EXECUTION_MODE",
+        help="Run signal collection without orders regardless of EXECUTION_MODE",
     )
     args = parser.parse_args()
 
     if args.dry_run:
-        os.environ["EXECUTION_MODE"] = "mock"
+        os.environ["EXECUTION_MODE"] = "shadow"
 
-    mode = os.getenv("EXECUTION_MODE", "mock")
+    mode = os.getenv("EXECUTION_MODE", "shadow")
 
     mapper = ContractMapper()
     client = make_client()
@@ -373,7 +412,11 @@ async def main() -> None:
     coroutines: list = [exit_manager.run()]
 
     for connector in registry.get_all():
-        coroutines.append(connector.start(tracker, mapper, _on_signal))
+        async def on_connector_signal(sig: VelocitySignal, source: str = connector.metadata.slug) -> None:
+            sig.source = source
+            await _on_signal(sig)
+
+        coroutines.append(connector.start(tracker, mapper, on_connector_signal))
 
     if os.getenv("OFF_HOURS_MODE", "suppress") == "queue":
         coroutines.append(

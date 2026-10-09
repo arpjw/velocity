@@ -6,10 +6,8 @@ author: "arpjw"
 source_type: "prediction_market"
 transport: "websocket"
 description: "Streams KXFED contract prices from Kalshi via WebSocket."
-auth_required: true
-auth_fields:
-  - KALSHI_API_KEY
-  - KALSHI_PRIVATE_KEY_PATH
+auth_required: false
+auth_fields: []
 contract_slugs:
   - KXFED
 poll_interval_seconds: null

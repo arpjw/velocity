@@ -12,20 +12,23 @@ from signals.velocity import PricePoint, VelocitySignal, VelocityTracker
 def make_poller(use_websocket=True) -> PolymarketPoller:
     tracker = VelocityTracker(window_minutes=5, threshold=0.0, history_minutes=60)
     mapper = MagicMock()
-    return PolymarketPoller(
+    poller = PolymarketPoller(
         condition_ids=["cond-1", "cond-2"],
         tracker=tracker,
         mapper=mapper,
         use_websocket=use_websocket,
     )
+    poller._asset_to_condition = {"asset-1": "cond-1", "asset-2": "cond-2"}
+    poller._volume_by_asset = {"asset-1": 0.0, "asset-2": 0.0}
+    return poller
 
 
 def price_change_msg(market: str, price: float) -> str:
-    return json.dumps({"event_type": "price_change", "market": market, "price": price})
+    return json.dumps({"event_type": "price_change", "market": "cond-1", "price_changes": [{"asset_id": market, "best_bid": str(price - 0.01), "best_ask": str(price + 0.01)}]})
 
 
 def price_change_list(market: str, price: float) -> str:
-    return json.dumps([{"event_type": "price_change", "market": market, "price": price}])
+    return json.dumps([json.loads(price_change_msg(market, price))])
 
 
 def make_dummy_signal(slug: str = "cond-1") -> VelocitySignal:
@@ -50,7 +53,7 @@ class TestWsMessageParsing:
         async def on_signal(sig):
             signals.append(sig)
 
-        raw = price_change_msg("cond-1", 0.6)
+        raw = price_change_msg("asset-1", 0.6)
         await poller._handle_ws_message(raw, on_signal)
 
         assert len(signals) == 1
@@ -66,7 +69,7 @@ class TestWsMessageParsing:
         async def on_signal(sig):
             signals.append(sig)
 
-        raw = price_change_list("cond-1", 0.6)
+        raw = price_change_list("asset-1", 0.6)
         await poller._handle_ws_message(raw, on_signal)
 
         assert len(signals) == 1
@@ -91,7 +94,7 @@ class TestWsMessageParsing:
         async def on_signal(sig):
             fired.append(sig)
 
-        raw = price_change_msg("unknown-market", 0.6)
+        raw = price_change_msg("unknown-asset", 0.6)
         await poller._handle_ws_message(raw, on_signal)
         assert fired == []
 
@@ -114,9 +117,31 @@ class TestWsMessageParsing:
         async def on_signal(sig):
             fired.append(sig)
 
-        raw = json.dumps({"event_type": "price_change", "market": "cond-1"})
+        raw = json.dumps({"event_type": "price_change", "price_changes": [{"asset_id": "asset-1"}]})
         await poller._handle_ws_message(raw, on_signal)
         assert fired == []
+
+    @pytest.mark.asyncio
+    async def test_last_trade_updates_cumulative_volume(self):
+        poller = make_poller()
+        poller._tracker.update = MagicMock(return_value=None)
+        raw = json.dumps({"event_type": "last_trade_price", "asset_id": "asset-1", "price": "0.62", "size": "3.5", "timestamp": "1782753357257"})
+        await poller._handle_ws_message(raw, AsyncMock())
+        assert poller._volume_by_asset["asset-1"] == 3.5
+        assert poller._tracker.update.call_args.args[0] == "cond-1"
+        assert poller._tracker.update.call_args.args[1].price == 0.62
+
+    @pytest.mark.asyncio
+    async def test_subscribe_uses_yes_asset_ids(self):
+        poller = make_poller()
+        ws = AsyncMock()
+        await poller._send_subscribe(ws)
+        assert json.loads(ws.send.call_args.args[0]) == {"type": "market", "assets_ids": ["asset-1", "asset-2"]}
+
+    def test_rest_price_uses_yes_outcome(self):
+        poller = make_poller()
+        market = {"tokens": [{"outcome": "No", "price": "0.4"}, {"outcome": "Yes", "price": "0.6"}], "volume": "10"}
+        assert poller._extract_price_volume(market) == (0.6, 10)
 
 
 class TestWsFallback:
@@ -155,6 +180,7 @@ class TestWsFallback:
         import websockets.exceptions
 
         poller = make_poller()
+        poller._resolve_assets = AsyncMock()
         sleep_calls = []
 
         original_sleep = asyncio.sleep

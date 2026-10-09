@@ -8,8 +8,8 @@ const CONNECTORS = [
     name: 'Kalshi Fed Markets',
     transport: 'WS',
     description:
-      'Streams KXFED contract prices via WebSocket. Five contracts tracking Fed funds rate targets through April 2027.',
-    meta: '5 contracts  ·  Auth required  ·  v1.0.0',
+      'Discovers active KXFED contracts from the public market API and tracks their outcome prices.',
+    meta: 'Dynamic discovery  ·  Public REST  ·  v1.0.0',
     builtIn: true,
     custom: false,
   },
@@ -18,8 +18,8 @@ const CONNECTORS = [
     name: 'Polymarket Macro',
     transport: 'WS',
     description:
-      "Streams macro prediction market prices from Polymarket's CLOB via WebSocket. Covers Fed, inflation, and economic event contracts.",
-    meta: '3 contracts  ·  No auth  ·  v1.0.0',
+      "Tracks configured Polymarket outcome asset IDs through the CLOB market feed.",
+    meta: 'Configured markets  ·  No auth  ·  v1.0.0',
     builtIn: true,
     custom: false,
   },
@@ -29,7 +29,7 @@ const CONNECTORS = [
     transport: 'REST',
     description:
       'Polls Metaculus for expert-aggregated probability on macro questions. Low frequency, high conviction — velocity spikes here are rare but informative.',
-    meta: '3 contracts  ·  No auth  ·  v1.0.0',
+    meta: 'Configured questions  ·  No auth  ·  v1.0.0',
     builtIn: true,
     custom: false,
   },
@@ -88,7 +88,7 @@ export default function PrismSection() {
             marginBottom: '48px',
           }}
         >
-          05 // PRISM
+          03 // PRISM
         </div>
 
         <h2
@@ -127,7 +127,7 @@ export default function PrismSection() {
           .prism is the connector format for the Velocity Signal Engine. Drop a .prism package
           into the connectors/ directory and the engine loads it automatically. Prediction
           markets, alternative data, news sentiment, order flow — if it produces a time series,
-          it can drive a signal.
+          it can produce a research observation. The code below is illustrative.
         </p>
 
         <div

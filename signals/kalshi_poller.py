@@ -157,7 +157,7 @@ class KalshiPoller:
             return
         try:
             price_value = float(price)
-            volume_value = int(float(volume))
+            volume_value = float(volume)
         except (TypeError, ValueError):
             return
         if not 0 <= price_value <= 1:
@@ -260,7 +260,7 @@ class KalshiPoller:
                 continue
             try:
                 price_value = float(price)
-                volume_value = int(float(volume))
+                volume_value = float(volume)
             except (TypeError, ValueError):
                 continue
             if not 0 <= price_value <= 1:

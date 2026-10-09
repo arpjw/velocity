@@ -91,14 +91,14 @@ class PolymarketPoller:
         tokens = market.get("tokens") or []
         return next((token for token in tokens if str(token.get("outcome", "")).lower() == "yes"), None)
 
-    def _extract_price_volume(self, market: dict) -> tuple[float, int] | None:
+    def _extract_price_volume(self, market: dict) -> tuple[float, float] | None:
         token = self._yes_token(market)
         if token is None:
             return None
         price = token.get("price")
         if price is None:
             return None
-        volume = int(float(market.get("volume", 0) or 0))
+        volume = float(market.get("volume", 0) or 0)
         return float(price), volume
 
     async def _resolve_assets(self) -> None:
@@ -190,7 +190,7 @@ class PolymarketPoller:
                 point = PricePoint(
                     timestamp=timestamp,
                     price=price,
-                    volume=int(self._volume_by_asset[asset_id]),
+                    volume=self._volume_by_asset[asset_id],
                 )
                 append_observation(
                     source="polymarket", ticker=condition_id, source_timestamp=timestamp,

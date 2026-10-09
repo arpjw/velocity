@@ -160,3 +160,26 @@ class TestVelocityTracker:
         sig_b = tracker.update("B", make_point(0, 0.5, 1000))
         assert sig_a is not None
         assert sig_b is None
+
+    def test_late_point_is_discarded(self) -> None:
+        tracker = VelocityTracker(window_minutes=5, threshold=0.01)
+        now = datetime.now(tz=timezone.utc)
+        tracker.update("X", PricePoint(now, 0.5, 10.5))
+        tracker.update("X", PricePoint(now - timedelta(minutes=1), 0.9, 20.5))
+        assert len(tracker._history["X"]) == 1
+        assert tracker._history["X"][-1].volume == 10.5
+
+    def test_volume_reset_clears_history(self) -> None:
+        tracker = VelocityTracker(window_minutes=5, threshold=0.01)
+        now = datetime.now(tz=timezone.utc)
+        tracker.update("X", PricePoint(now - timedelta(minutes=1), 0.5, 100.5))
+        assert tracker.update("X", PricePoint(now, 0.9, 1.5)) is None
+        assert len(tracker._history["X"]) == 1
+
+    def test_fractional_volume_can_confirm_signal(self) -> None:
+        tracker = VelocityTracker(window_minutes=5, threshold=0.01)
+        now = datetime.now(tz=timezone.utc)
+        tracker.update("X", PricePoint(now - timedelta(minutes=1), 0.5, 10.25))
+        signal = tracker.update("X", PricePoint(now, 0.8, 10.75))
+        assert signal is not None
+        assert signal.volume_delta == pytest.approx(0.5)

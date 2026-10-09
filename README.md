@@ -73,4 +73,6 @@ cd ui && npm ci && npm run build
 
 The UI is a Next.js site. Its `/api/markets` route fetches public KXFED markets server-side, displays recently traded contracts, and labels values as last trades. It does not display simulated P&L. `UI.md` is the original design brief; this README and the current code describe present behavior.
 
+GitHub Actions runs the Python test suite on Python 3.11 and 3.13, and builds the UI and audits its production dependencies on Node 22 for pushes and pull requests. Run `python scripts/healthcheck.py` separately when checking live API reachability.
+
 The connector format and extension workflow are in [CONTRIBUTING_CONNECTORS.md](CONTRIBUTING_CONNECTORS.md). Additional modules for sizing, alerts, an Oracle, a dashboard, and a legacy backtest remain in the repository. They have not been validated as a profitable or safe live trading system.

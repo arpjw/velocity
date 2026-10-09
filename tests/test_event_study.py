@@ -83,8 +83,42 @@ def test_chronological_holdout_and_missing_signal() -> None:
     assert len(report["train_sensitivity"]) == 9
 
 
+def test_multiple_contracts_for_one_release_count_as_one_event() -> None:
+    second_ticker = "KXFED-26JAN-T4.50"
+    first_quotes = [quote(-1, 0.5, 10), quote(1, 0.56, 20)]
+    second_quotes = [
+        Quote(point.timestamp, second_ticker, point.price, point.volume)
+        for point in first_quotes
+    ]
+    report = run_study(
+        [event(), EventSpec("fed-1", RELEASE, second_ticker, "XLF", 1, 1)],
+        {event().prediction_ticker: first_quotes, second_ticker: second_quotes},
+        {"XLF": [bar(1, 100), bar(2, 101), bar(122, 103)]},
+        threshold=0.02,
+    )
+    assert report["train"]["events"] == 1
+    assert report["train"]["contract_rows"] == 2
+    assert report["train"]["signals"] == 1
+    assert report["train"]["priced"] == 1
+    assert report["train"]["priced_contracts"] == 2
+    assert len(report["event_results"]) == 1
+    assert report["event_results"][0]["mean_net_bps"] == report["train"]["mean_net_bps"]
+    assert all(item["events"] == 1 for item in report["train_sensitivity"])
+
+
 def test_manifest_requires_exact_market_and_direction(tmp_path: Path) -> None:
     manifest = tmp_path / "events.csv"
     manifest.write_text("event_id,release_timestamp,prediction_ticker,equity_ticker,yes_up_equity,release_direction\nfed,2026-01-01T14:00:00Z,KXFED,XLF,1,1\n")
     with pytest.raises(ValueError, match="exact KXFED"):
+        load_events(manifest)
+
+
+def test_manifest_rejects_duplicate_contract_equity_pair(tmp_path: Path) -> None:
+    manifest = tmp_path / "events.csv"
+    row = "fed,2026-01-01T14:00:00Z,KXFED-26JAN-T4.25,XLF,1,1\n"
+    manifest.write_text(
+        "event_id,release_timestamp,prediction_ticker,equity_ticker,yes_up_equity,release_direction\n"
+        + row + row
+    )
+    with pytest.raises(ValueError, match="duplicate event/contract/equity"):
         load_events(manifest)

@@ -53,6 +53,7 @@ def load_events(path: str | Path) -> list[EventSpec]:
     with Path(path).open(newline="") as file:
         rows = list(csv.DictReader(file))
     events: list[EventSpec] = []
+    seen: set[tuple[str, datetime, str, str]] = set()
     for row in rows:
         direction = int(row["yes_up_equity"])
         release = int(row["release_direction"]) if row.get("release_direction") else None
@@ -60,14 +61,20 @@ def load_events(path: str | Path) -> list[EventSpec]:
             raise ValueError("directions must be +1 or -1")
         if not row["prediction_ticker"].startswith("KXFED-"):
             raise ValueError("this study requires an exact KXFED market ticker")
-        events.append(EventSpec(
+        event = EventSpec(
             event_id=row["event_id"],
             release_timestamp=parse_time(row["release_timestamp"]),
             prediction_ticker=row["prediction_ticker"],
             equity_ticker=row["equity_ticker"],
             yes_up_equity=direction,
             release_direction=release,
-        ))
+        )
+        key = (event.event_id, event.release_timestamp,
+               event.prediction_ticker, event.equity_ticker)
+        if key in seen:
+            raise ValueError(f"duplicate event/contract/equity row: {key}")
+        seen.add(key)
+        events.append(event)
     return sorted(events, key=lambda event: (event.release_timestamp, event.event_id))
 
 
@@ -242,25 +249,66 @@ def evaluate_event(
     return result
 
 
-def _summary(rows: list[dict]) -> dict:
-    priced = [row for row in rows if row["status"] == "priced"]
-    returns = [row["signal_net_bps"] for row in priced]
-    baseline = [row["release_baseline_net_bps"] for row in priced if "release_baseline_net_bps" in row]
-    eligible_placebos = [row for row in rows if row.get("placebo_fired") is not None]
+def _event_results(rows: list[dict]) -> list[dict]:
+    grouped: dict[tuple[str, str], list[dict]] = {}
+    for row in rows:
+        grouped.setdefault((row["release_timestamp"], row["event_id"]), []).append(row)
+    events = []
+    for (release_timestamp, event_id), contracts in sorted(grouped.items()):
+        priced = [row for row in contracts if row["status"] == "priced"]
+        returns = [row["signal_net_bps"] for row in priced]
+        baseline = [row["release_baseline_net_bps"] for row in priced
+                    if "release_baseline_net_bps" in row]
+        eligible_placebos = [row["placebo_fired"] for row in contracts
+                             if row.get("placebo_fired") is not None]
+        events.append({
+            "event_id": event_id,
+            "release_timestamp": release_timestamp,
+            "split": contracts[0].get("split"),
+            "contract_rows": len(contracts),
+            "priced_contracts": len(priced),
+            "signals": sum("signal_timestamp" in row for row in contracts),
+            "mean_net_bps": round(mean(returns), 4) if returns else None,
+            "mean_pre_signal_move_bps": round(
+                mean(row["pre_signal_move_bps"] for row in priced), 4
+            ) if priced else None,
+            "release_baseline_mean_bps": round(mean(baseline), 4) if baseline else None,
+            "placebo_fired": any(eligible_placebos) if eligible_placebos else None,
+            "missing_prediction_contracts": sum(
+                row["status"].startswith("missing_prediction") for row in contracts
+            ),
+            "missing_equity_contracts": sum(
+                row["status"] == "missing_equity_bars" for row in contracts
+            ),
+        })
+    return events
+
+
+def _event_summary(events: list[dict]) -> dict:
+    priced = [event for event in events if event["mean_net_bps"] is not None]
+    returns = [event["mean_net_bps"] for event in priced]
+    baseline = [event["release_baseline_mean_bps"] for event in priced
+                if event["release_baseline_mean_bps"] is not None]
+    placebos = [event["placebo_fired"] for event in events
+                if event["placebo_fired"] is not None]
     return {
-        "events": len(rows),
-        "signals": sum("signal_timestamp" in row for row in rows),
+        "events": len(events),
+        "contract_rows": sum(event["contract_rows"] for event in events),
+        "signals": sum(event["signals"] > 0 for event in events),
         "priced": len(priced),
-        "missing_prediction_data": sum(row["status"].startswith("missing_prediction") for row in rows),
-        "missing_equity_bars": sum(row["status"] == "missing_equity_bars" for row in rows),
+        "priced_contracts": sum(event["priced_contracts"] for event in events),
+        "missing_prediction_contracts": sum(event["missing_prediction_contracts"] for event in events),
+        "missing_equity_contracts": sum(event["missing_equity_contracts"] for event in events),
         "mean_net_bps": round(mean(returns), 4) if returns else None,
         "median_net_bps": round(median(returns), 4) if returns else None,
         "positive_rate": round(sum(value > 0 for value in returns) / len(returns), 4) if returns else None,
-        "mean_pre_signal_move_bps": round(mean(row["pre_signal_move_bps"] for row in priced), 4) if priced else None,
+        "mean_pre_signal_move_bps": round(
+            mean(event["mean_pre_signal_move_bps"] for event in priced), 4
+        ) if priced else None,
         "release_baseline_count": len(baseline),
         "release_baseline_mean_bps": round(mean(baseline), 4) if baseline else None,
-        "placebo_signals": sum(row["placebo_fired"] for row in eligible_placebos),
-        "placebo_eligible": len(eligible_placebos),
+        "placebo_signals": sum(placebos),
+        "placebo_eligible": len(placebos),
     }
 
 
@@ -322,8 +370,11 @@ def run_study(
             sensitivity.append({
                 "threshold": round(trial_threshold, 6),
                 "latency_seconds": trial_latency,
-                **_summary(trial_rows),
+                **_event_summary(_event_results(trial_rows)),
             })
+    event_results = _event_results(results)
+    train_event_results = [row for row in event_results if row["split"] == "train"]
+    holdout_event_results = [row for row in event_results if row["split"] == "holdout"]
     return {
         "assumptions": {
             "velocity_threshold_per_minute": threshold,
@@ -335,8 +386,9 @@ def run_study(
             "round_trip_cost_bps": round_trip_cost_bps,
             "equity_price": "first bar open at or after target, at most two minutes late",
         },
-        "train": _summary([row for row in results if row["split"] == "train"]),
-        "holdout": _summary([row for row in results if row["split"] == "holdout"]),
+        "train": _event_summary(train_event_results),
+        "holdout": _event_summary(holdout_event_results),
+        "event_results": event_results,
         "train_sensitivity": sensitivity,
         "results": results,
     }

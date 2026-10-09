@@ -25,6 +25,13 @@ _WS_BACKOFF_MAX = 16.0
 logger = logging.getLogger(__name__)
 
 
+def _source_time_from_ms(raw: object) -> datetime | None:
+    try:
+        return datetime.fromtimestamp(int(raw) / 1000, tz=timezone.utc)
+    except (TypeError, ValueError, OverflowError):
+        return None
+
+
 def _log_signal(signal: VelocitySignal) -> None:
     SIGNAL_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
     record = {
@@ -53,6 +60,8 @@ class PolymarketPoller:
         self._mapper = mapper
         self._api_key = os.getenv("POLYMARKET_API_KEY", "")
         self._use_websocket = use_websocket
+        self._asset_to_condition: dict[str, str] = {}
+        self._volume_by_asset: dict[str, float] = {}
 
     async def _fetch_market(
         self, client: httpx.AsyncClient, condition_id: str
@@ -77,16 +86,33 @@ class PolymarketPoller:
             logger.warning("polymarket fetch failed for %s: %s", condition_id, exc)
             return None
 
-    def _extract_price_volume(self, market: dict) -> tuple[float, int] | None:
+    def _yes_token(self, market: dict) -> dict | None:
         tokens = market.get("tokens") or []
-        if not tokens:
+        return next((token for token in tokens if str(token.get("outcome", "")).lower() == "yes"), None)
+
+    def _extract_price_volume(self, market: dict) -> tuple[float, int] | None:
+        token = self._yes_token(market)
+        if token is None:
             return None
-        token = tokens[0]
         price = token.get("price")
         if price is None:
             return None
         volume = int(float(market.get("volume", 0) or 0))
         return float(price), volume
+
+    async def _resolve_assets(self) -> None:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            results = await asyncio.gather(
+                *[self._fetch_market(client, cid) for cid in self._condition_ids]
+            )
+        for condition_id, market in zip(self._condition_ids, results):
+            if market is None:
+                continue
+            token = self._yes_token(market)
+            if token and token.get("token_id"):
+                asset_id = str(token["token_id"])
+                self._asset_to_condition[asset_id] = condition_id
+                self._volume_by_asset[asset_id] = float(market.get("volume", 0) or 0)
 
     async def poll_once(
         self,
@@ -112,7 +138,7 @@ class PolymarketPoller:
                 await on_signal(signal)
 
     async def _send_subscribe(self, ws) -> None:
-        msg = {"type": "subscribe", "markets": self._condition_ids}
+        msg = {"type": "market", "assets_ids": list(self._asset_to_condition)}
         await ws.send(json.dumps(msg))
 
     async def _handle_ws_message(
@@ -129,25 +155,51 @@ class PolymarketPoller:
         for item in items:
             if not isinstance(item, dict):
                 continue
-            if item.get("event_type") != "price_change":
+            event_type = item.get("event_type")
+            if event_type == "last_trade_price":
+                changes = [item]
+            elif event_type == "price_change":
+                changes = item.get("price_changes") or []
+            else:
                 continue
-            market = item.get("market")
-            price = item.get("price")
-            if market is None or price is None:
-                continue
-            if market not in self._condition_ids:
-                continue
-            now = datetime.now(tz=timezone.utc)
-            point = PricePoint(timestamp=now, price=float(price), volume=0)
-            signal = self._tracker.update(market, point)
-            if signal is not None:
-                _log_signal(signal)
-                await on_signal(signal)
+            for change in changes:
+                asset_id = str(change.get("asset_id") or "")
+                condition_id = self._asset_to_condition.get(asset_id)
+                if condition_id is None:
+                    continue
+                try:
+                    if event_type == "last_trade_price":
+                        price = float(change["price"])
+                        self._volume_by_asset[asset_id] += float(change.get("size") or 0)
+                    else:
+                        bid = float(change["best_bid"])
+                        ask = float(change["best_ask"])
+                        if bid > ask:
+                            continue
+                        price = (bid + ask) / 2
+                except (KeyError, TypeError, ValueError):
+                    continue
+                if not 0 <= price <= 1:
+                    continue
+                timestamp = _source_time_from_ms(item.get("timestamp")) or datetime.now(tz=timezone.utc)
+                point = PricePoint(
+                    timestamp=timestamp,
+                    price=price,
+                    volume=int(self._volume_by_asset[asset_id]),
+                )
+                signal = self._tracker.update(condition_id, point)
+                if signal is not None:
+                    _log_signal(signal)
+                    await on_signal(signal)
 
     async def _run_websocket(
         self,
         on_signal: Callable[[VelocitySignal], Awaitable[None]],
     ) -> bool:
+        await self._resolve_assets()
+        if not self._asset_to_condition:
+            logger.warning("No Polymarket Yes outcome asset IDs resolved")
+            return False
         attempts = 0
         backoff = _WS_BACKOFF_INITIAL
 

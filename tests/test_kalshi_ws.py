@@ -49,8 +49,8 @@ class TestWsMessageParsing:
             "type": "ticker",
             "msg": {
                 "market_ticker": "KXFED",
-                "yes_price": 55,
-                "volume": 1000,
+                "price_dollars": "0.5500",
+                "volume_fp": "1000.00",
             },
         })
         await poller._handle_ws_message(raw, AsyncMock())
@@ -59,11 +59,11 @@ class TestWsMessageParsing:
         assert history[0].price == pytest.approx(0.55)
 
     @pytest.mark.asyncio
-    async def test_yes_price_normalized_to_0_1(self, poller: KalshiPoller) -> None:
-        for cents in [0, 25, 50, 75, 100]:
+    async def test_dollar_price_parsed_as_probability(self, poller: KalshiPoller) -> None:
+        for price in [0, 0.25, 0.5, 0.75, 1]:
             raw = json.dumps({
                 "type": "ticker",
-                "msg": {"market_ticker": "KXFED", "yes_price": cents, "volume": 0},
+                "msg": {"market_ticker": "KXFED", "price_dollars": str(price), "volume_fp": "0.00"},
             })
             await poller._handle_ws_message(raw, AsyncMock())
         history = list(poller._tracker._history["KXFED"])
@@ -82,7 +82,7 @@ class TestWsMessageParsing:
     async def test_untracked_ticker_ignored(self, poller: KalshiPoller) -> None:
         raw = json.dumps({
             "type": "ticker",
-            "msg": {"market_ticker": "UNKNOWN", "yes_price": 50, "volume": 100},
+            "msg": {"market_ticker": "UNKNOWN", "price_dollars": "0.50", "volume_fp": "100.00"},
         })
         await poller._handle_ws_message(raw, AsyncMock())
         assert "UNKNOWN" not in poller._tracker._history
@@ -106,7 +106,7 @@ class TestWsMessageParsing:
                 mock_dt.now.return_value = tick_ts
                 raw = json.dumps({
                     "type": "ticker",
-                    "msg": {"market_ticker": "KXFED", "yes_price": yes_price, "volume": volume},
+                    "msg": {"market_ticker": "KXFED", "price_dollars": str(yes_price / 100), "volume_fp": str(volume)},
                 })
                 await poller._handle_ws_message(raw, capture)
 
@@ -123,8 +123,8 @@ class TestWsMessageParsing:
                 "type": "ticker",
                 "msg": {
                     "market_ticker": "KXFED",
-                    "yes_price": 10 + i * 15,
-                    "volume": 1000 + i * 500,
+                    "price_dollars": str((10 + i * 15) / 100),
+                    "volume_fp": str(1000 + i * 500),
                 },
             })
             await poller._handle_ws_message(raw, capture)

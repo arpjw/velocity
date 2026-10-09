@@ -17,6 +17,8 @@ This study measures whether a specific Kalshi Fed contract moves before a chosen
 
 `kalshi.csv` is produced by `python -m scripts.fetch_kalshi_history` and contains `timestamp,ticker,price,yes_bid,yes_ask,volume`. Prices are dollars on `[0,1]`; volume is cumulative per market. Candles are timestamped at the *end* of the minute. The study uses the bid/ask midpoint where available and never uses a quote at the release time as its prerelease reference.
 
+For prospective shadow data, run `python main.py --dry-run` and export the Kalshi observations with `python -m scripts.export_observations --output data/observed-kxfed.csv`. The export uses the later of source and receipt timestamps so a delayed update cannot be treated as known before it was received. `logs/shadow_signals.jsonl` records candidates without placing orders.
+
 `equity.csv` has `timestamp,ticker,open`. Each timestamp is the **start** of a one minute bar in UTC. Use raw, point-in-time prices from an intraday data provider, including delisted symbols when relevant. Do not use daily bars or revised adjusted prices. The study buys or sells hypothetically at the first bar open after latency and exits at the first bar open after the hold window. A bar more than two minutes late is treated as missing.
 
 ## Run

@@ -12,6 +12,7 @@ from websockets.asyncio.client import connect as ws_connect
 
 from signals.contract_mapper import ContractMapper
 from signals.velocity import PricePoint, VelocitySignal, VelocityTracker
+from research.observation_log import append_observation
 
 POLYMARKET_CLOB_URL = "https://clob.polymarket.com"
 POLYMARKET_WS_URL = "wss://ws-subscriptions-clob.polymarket.com/ws/market"
@@ -132,6 +133,10 @@ class PolymarketPoller:
                 continue
             price, volume = extracted
             point = PricePoint(timestamp=now, price=price, volume=volume)
+            append_observation(
+                source="polymarket", ticker=condition_id, source_timestamp=now,
+                price=price, volume=volume,
+            )
             signal = self._tracker.update(condition_id, point)
             if signal is not None:
                 _log_signal(signal)
@@ -186,6 +191,11 @@ class PolymarketPoller:
                     timestamp=timestamp,
                     price=price,
                     volume=int(self._volume_by_asset[asset_id]),
+                )
+                append_observation(
+                    source="polymarket", ticker=condition_id, source_timestamp=timestamp,
+                    price=price, volume=point.volume,
+                    bid=change.get("best_bid"), ask=change.get("best_ask"),
                 )
                 signal = self._tracker.update(condition_id, point)
                 if signal is not None:

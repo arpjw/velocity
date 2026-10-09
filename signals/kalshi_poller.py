@@ -18,6 +18,7 @@ from cryptography.hazmat.primitives.asymmetric.rsa import RSAPrivateKey
 
 from signals.velocity import PricePoint, VelocitySignal, VelocityTracker
 from signals.kalshi_market_data import KALSHI_BASE_URL, source_time_from_ms
+from research.observation_log import append_observation
 
 KALSHI_BASE_URL = os.getenv("KALSHI_BASE_URL", KALSHI_BASE_URL)
 KALSHI_WS_URL = os.getenv(
@@ -163,6 +164,11 @@ class KalshiPoller:
             return
         timestamp = source_time_from_ms(msg.get("ts_ms")) or datetime.now(tz=timezone.utc)
         point = PricePoint(timestamp=timestamp, price=price_value, volume=volume_value)
+        append_observation(
+            source="kalshi", ticker=market_ticker, source_timestamp=timestamp,
+            price=price_value, volume=volume_value,
+            bid=msg.get("yes_bid_dollars"), ask=msg.get("yes_ask_dollars"),
+        )
         signal = self._tracker.update(market_ticker, point)
         if signal is not None:
             _log_signal(signal)
@@ -260,6 +266,11 @@ class KalshiPoller:
             if not 0 <= price_value <= 1:
                 continue
             point = PricePoint(timestamp=now, price=price_value, volume=volume_value)
+            append_observation(
+                source="kalshi", ticker=ticker, source_timestamp=now,
+                price=price_value, volume=volume_value,
+                bid=market.get("yes_bid_dollars"), ask=market.get("yes_ask_dollars"),
+            )
             signal = self._tracker.update(ticker, point)
             if signal is not None:
                 _log_signal(signal)

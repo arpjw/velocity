@@ -19,6 +19,8 @@ Copy `research/events.example.csv` to `data/events.csv`, then add one reviewed r
 
 For prospective shadow data, run `python main.py --dry-run` and export the Kalshi observations with `python -m scripts.export_observations --output data/observed-kxfed.csv`. The export uses the later of source and receipt timestamps so a delayed update cannot be treated as known before it was received. `logs/shadow_signals.jsonl` records candidates without placing orders.
 
+Prospective observations include a schema version, stable observation ID, price kind, source and receipt timestamps, and fractional volume. The exporter removes repeated observation IDs and includes Kalshi last-trade prices only. Polymarket trade, midpoint, and REST reference prices are labeled separately; only observed trades feed its velocity tracker.
+
 `equity.csv` has `timestamp,ticker,open`. Each timestamp is the **start** of a one minute bar in UTC. Use raw, point-in-time prices from an intraday data provider, including delisted symbols when relevant. Do not use daily bars or revised adjusted prices. The study buys or sells hypothetically at the first bar open after latency and exits at the first bar open after the hold window. A bar more than two minutes late is treated as missing.
 
 ## Run

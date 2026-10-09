@@ -6,4 +6,4 @@ Streams selected Yes outcome prices from Polymarket's Central Limit Order Book (
 
 **Auth:** No authentication required for read-only CLOB access. Set `POLYMARKET_CONDITION_IDS` to a comma-separated list of Polymarket condition IDs to track. Without this env var the connector starts but no-ops.
 
-**Transport:** The connector resolves each condition's Yes token ID through CLOB REST, subscribes to those asset IDs over WebSocket, uses the best bid and ask midpoint for quote changes, and accumulates reported trade sizes for volume. REST polling remains a fallback.
+**Transport:** The connector resolves each condition's Yes token ID through CLOB REST and subscribes to those asset IDs over WebSocket. Trades feed the velocity tracker. Quote changes are recorded as midpoints but do not create trade-price signals. REST polling records reference prices as a fallback without generating signals.

@@ -32,10 +32,18 @@ def bar(minutes: int, opening: float, release: datetime = RELEASE) -> EquityBar:
 
 def test_signal_uses_strictly_prerelease_reference_and_volume() -> None:
     quotes = [quote(-1, 0.50, 10), quote(0, 0.53, 10), quote(1, 0.56, 11)]
-    detected = first_signal(quotes, RELEASE, threshold=0.05, window_minutes=15)
+    detected = first_signal(quotes, RELEASE, threshold=0.02, window_minutes=15)
     assert detected is not None and detected[0].timestamp == RELEASE + timedelta(minutes=1)
-    assert first_signal(quotes[1:], RELEASE, threshold=0.05, window_minutes=15) is None
-    assert first_signal([quote(-1, 0.5, 10), quote(1, 0.6, 10)], RELEASE, threshold=0.05, window_minutes=15) is None
+    assert detected[1].velocity == pytest.approx(0.03)
+    assert first_signal(quotes[1:], RELEASE, threshold=0.02, window_minutes=15) is None
+    assert first_signal([quote(-1, 0.5, 10), quote(1, 0.6, 10)], RELEASE, threshold=0.02, window_minutes=15) is None
+
+
+def test_replay_uses_velocity_not_absolute_probability_move() -> None:
+    assert first_signal(
+        [quote(-4, 0.5, 10), quote(1, 0.56, 20)],
+        RELEASE, threshold=0.02, window_minutes=15,
+    ) is None
 
 
 def test_event_prices_first_available_intraday_open_after_latency() -> None:
@@ -43,13 +51,14 @@ def test_event_prices_first_available_intraday_open_after_latency() -> None:
         event(),
         [quote(-1, 0.5, 10), quote(1, 0.56, 20)],
         [bar(1, 100), bar(2, 101), bar(122, 103)],
-        threshold=0.05,
+        threshold=0.02,
         window_minutes=15,
         hold_minutes=120,
         latency_seconds=60,
         round_trip_cost_bps=30,
     )
     assert result["status"] == "priced"
+    assert result["velocity_per_minute"] == pytest.approx(0.03)
     assert result["pre_signal_move_bps"] == pytest.approx(100)
     assert result["signal_net_bps"] == pytest.approx((103 / 101 - 1) * 10000 - 30)
     assert result["release_baseline_net_bps"] == pytest.approx(270)
@@ -66,6 +75,7 @@ def test_chronological_holdout_and_missing_signal() -> None:
         events,
         {"KXFED-26JAN-T4.25": [quote(-1, 0.5, 10), quote(1, 0.56, 20), quote(-1, 0.5, 10, later), quote(1, 0.51, 20, later)]},
         {"XLF": [bar(1, 100), bar(2, 101), bar(122, 103)]},
+        threshold=0.02,
     )
     assert report["train"]["signals"] == 1
     assert report["holdout"]["signals"] == 0

@@ -53,7 +53,7 @@ python -m scripts.run_event_study \
   --output data/event-study-report.json
 ```
 
-The dates above show command syntax; choose a real release and its matching market. Use `--historical` with the fetch command for archived markets. The current default study uses a five percentage point move within fifteen minutes, sixty seconds of entry latency, thirty basis points of round trip cost, and a two-hour horizon. These are research assumptions, not optimized trading parameters. Do not interpret a positive result from a few correlated markets or a single release as evidence of an edge.
+The dates above show command syntax; choose a real release and its matching market. Use `--historical` with the fetch command for archived markets. The study replays the running velocity rule, which defaults to 0.15 probability points per minute over a five-minute rolling window. It looks for signals in the fifteen minutes after release, then assumes sixty seconds of entry latency, thirty basis points of round trip cost, and a two-hour horizon. These are research assumptions, not optimized trading parameters. Do not interpret a positive result from a few correlated markets or a single release as evidence of an edge.
 
 ## Current limits and next decisions
 

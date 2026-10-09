@@ -8,6 +8,14 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from statistics import mean, median
 
+from signals.velocity import (
+    VELOCITY_THRESHOLD,
+    VELOCITY_WINDOW_MINUTES,
+    PricePoint,
+    VelocitySignal,
+    VelocityTracker,
+)
+
 
 def parse_time(value: str) -> datetime:
     timestamp = datetime.fromisoformat(value.replace("Z", "+00:00"))
@@ -67,20 +75,18 @@ def load_quotes(path: str | Path) -> dict[str, list[Quote]]:
     by_ticker: dict[str, list[Quote]] = {}
     with Path(path).open(newline="") as file:
         for row in csv.DictReader(file):
-            try:
-                bid = float(row["yes_bid"])
-                ask = float(row["yes_ask"])
-                price = (bid + ask) / 2 if 0 < bid <= ask < 1 else float(row["price"])
-            except (KeyError, TypeError, ValueError):
-                price = float(row["price"])
-            if not 0 <= price <= 1:
+            price = float(row["price"])
+            if not math.isfinite(price) or not 0 <= price <= 1:
                 raise ValueError("prediction quote outside [0, 1]")
+            volume = float(row["volume"])
+            if not math.isfinite(volume) or volume < 0:
+                raise ValueError("prediction volume must be finite and nonnegative")
             ticker = row["ticker"]
             by_ticker.setdefault(ticker, []).append(Quote(
                 timestamp=parse_time(row["timestamp"]),
                 ticker=ticker,
                 price=price,
-                volume=float(row["volume"]),
+                volume=volume,
             ))
     for quotes in by_ticker.values():
         quotes.sort(key=lambda quote: quote.timestamp)
@@ -109,8 +115,10 @@ def first_signal(
     *,
     threshold: float,
     window_minutes: int,
+    velocity_window_minutes: int = VELOCITY_WINDOW_MINUTES,
+    volume_multiplier: float = 2.0,
     max_staleness_minutes: int = 10,
-) -> tuple[Quote, float] | None:
+) -> tuple[Quote, VelocitySignal] | None:
     times = [quote.timestamp for quote in quotes]
     start = bisect_left(times, release)
     if start == 0:
@@ -118,13 +126,23 @@ def first_signal(
     before = quotes[start - 1]
     if release - before.timestamp > timedelta(minutes=max_staleness_minutes):
         return None
+    tracker = VelocityTracker(
+        window_minutes=velocity_window_minutes,
+        threshold=threshold,
+        volume_multiplier=volume_multiplier,
+    )
+    replay_start = bisect_left(times, release - timedelta(minutes=60))
     end = release + timedelta(minutes=window_minutes)
-    for quote in quotes[start:]:
+    for quote in quotes[replay_start:]:
         if quote.timestamp > end:
             break
-        change = quote.price - before.price
-        if abs(change) >= threshold and quote.volume > before.volume:
-            return quote, change
+        signal = tracker.update(
+            quote.ticker,
+            PricePoint(timestamp=quote.timestamp, price=quote.price, volume=quote.volume),
+        )
+        # A candle ending at the release time contains prerelease data.
+        if quote.timestamp > release and signal is not None:
+            return quote, signal
     return None
 
 
@@ -143,6 +161,8 @@ def evaluate_event(
     *,
     threshold: float,
     window_minutes: int,
+    velocity_window_minutes: int = VELOCITY_WINDOW_MINUTES,
+    volume_multiplier: float = 2.0,
     hold_minutes: int,
     latency_seconds: int,
     round_trip_cost_bps: float,
@@ -180,18 +200,26 @@ def evaluate_event(
         placebo_release,
         threshold=threshold,
         window_minutes=window_minutes,
+        velocity_window_minutes=velocity_window_minutes,
+        volume_multiplier=volume_multiplier,
     )
     result["placebo_fired"] = placebo is not None if placebo_eligible else None
     signal = first_signal(
-        quotes, event.release_timestamp, threshold=threshold, window_minutes=window_minutes
+        quotes, event.release_timestamp, threshold=threshold,
+        window_minutes=window_minutes,
+        velocity_window_minutes=velocity_window_minutes,
+        volume_multiplier=volume_multiplier,
     )
     if signal is None:
         return result
-    quote, probability_change = signal
-    side = event.yes_up_equity * (1 if probability_change > 0 else -1)
+    quote, velocity_signal = signal
+    side = event.yes_up_equity * (1 if velocity_signal.velocity > 0 else -1)
     result.update({
         "signal_timestamp": quote.timestamp.isoformat(),
-        "probability_change": round(probability_change, 6),
+        "probability_change_from_release_baseline": round(
+            quote.price - quotes[release_start - 1].price, 6
+        ),
+        "velocity_per_minute": round(velocity_signal.velocity, 6),
         "side": side,
         "status": "missing_equity_bars",
     })
@@ -241,15 +269,17 @@ def run_study(
     quotes: dict[str, list[Quote]],
     equity_bars: dict[str, list[EquityBar]],
     *,
-    threshold: float = 0.05,
+    threshold: float = VELOCITY_THRESHOLD,
     window_minutes: int = 15,
+    velocity_window_minutes: int = VELOCITY_WINDOW_MINUTES,
+    volume_multiplier: float = 2.0,
     hold_minutes: int = 120,
     latency_seconds: int = 60,
     round_trip_cost_bps: float = 30.0,
 ) -> dict:
-    if not 0 < threshold <= 1 or min(window_minutes, hold_minutes) <= 0:
+    if not 0 < threshold <= 1 or min(window_minutes, velocity_window_minutes, hold_minutes) <= 0:
         raise ValueError("threshold and windows must be positive")
-    if latency_seconds < 0 or round_trip_cost_bps < 0:
+    if latency_seconds < 0 or round_trip_cost_bps < 0 or volume_multiplier < 0:
         raise ValueError("latency and costs cannot be negative")
     distinct_events = sorted({(event.release_timestamp, event.event_id) for event in events})
     split_index = max(1, int(len(distinct_events) * 0.7)) if distinct_events else 0
@@ -262,6 +292,8 @@ def run_study(
             equity_bars.get(event.equity_ticker, []),
             threshold=threshold,
             window_minutes=window_minutes,
+            velocity_window_minutes=velocity_window_minutes,
+            volume_multiplier=volume_multiplier,
             hold_minutes=hold_minutes,
             latency_seconds=latency_seconds,
             round_trip_cost_bps=round_trip_cost_bps,
@@ -279,6 +311,8 @@ def run_study(
                     equity_bars.get(event.equity_ticker, []),
                     threshold=trial_threshold,
                     window_minutes=window_minutes,
+                    velocity_window_minutes=velocity_window_minutes,
+                    volume_multiplier=volume_multiplier,
                     hold_minutes=hold_minutes,
                     latency_seconds=trial_latency,
                     round_trip_cost_bps=round_trip_cost_bps,
@@ -292,8 +326,10 @@ def run_study(
             })
     return {
         "assumptions": {
-            "threshold_probability_points": threshold,
+            "velocity_threshold_per_minute": threshold,
             "signal_window_minutes": window_minutes,
+            "velocity_window_minutes": velocity_window_minutes,
+            "volume_multiplier": volume_multiplier,
             "hold_minutes": hold_minutes,
             "latency_seconds": latency_seconds,
             "round_trip_cost_bps": round_trip_cost_bps,

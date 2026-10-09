@@ -78,18 +78,29 @@ def test_cancel_all_returns_zero_when_no_match(client: MockMCPClient) -> None:
     assert len(client.get_positions()) == 1
 
 
-def test_make_client_raises_for_live_mode_without_url(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_make_client_blocks_live_mode(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("EXECUTION_MODE", "live")
-    monkeypatch.delenv("ROBINHOOD_MCP_URL", raising=False)
-    with pytest.raises(RuntimeError, match="ROBINHOOD_MCP_URL"):
+    monkeypatch.setenv("ROBINHOOD_MCP_URL", "https://agent.robinhood.com/mcp/trading")
+    with pytest.raises(RuntimeError, match="disabled pending fill reconciliation"):
         module.make_client()
 
 
-def test_make_client_returns_live_client_when_url_set(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("EXECUTION_MODE", "live")
-    monkeypatch.setenv("ROBINHOOD_MCP_URL", "https://agent.robinhood.com/mcp/trading")
-    client = module.make_client()
-    assert isinstance(client, LiveMCPClient)
+def test_live_adapter_rejects_order_placement() -> None:
+    client = LiveMCPClient("https://agent.robinhood.com/mcp/trading")
+    with pytest.raises(RuntimeError, match="disabled"):
+        client.submit_order("AAPL", "buy", 100.0, "test")
+
+
+def test_live_adapter_requires_explicit_agentic_account(monkeypatch: pytest.MonkeyPatch) -> None:
+    from unittest.mock import MagicMock
+    client = LiveMCPClient("https://agent.robinhood.com/mcp/trading")
+    result = MagicMock()
+    result.isError = False
+    result.content = [MagicMock(text=json.dumps({"data": {"accounts": [{"account_number": "primary"}]}}))]
+    monkeypatch.setattr(client, "_run", lambda _: result)
+    monkeypatch.setattr(client, "_call_tool", lambda *args: None)
+    with pytest.raises(RuntimeError, match="agentic-enabled"):
+        client.get_account_id()
 
 
 def test_make_client_returns_mock_by_default(monkeypatch: pytest.MonkeyPatch) -> None:

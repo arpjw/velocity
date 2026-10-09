@@ -68,6 +68,7 @@ class TestExitReason:
 class TestExitManager:
     def make_manager(self) -> tuple[ExitManager, MagicMock]:
         client = MagicMock()
+        client.submit_order.return_value = {"status": "filled"}
         manager = ExitManager(
             client=client,
             price_fetcher=lambda tickers: {t: 100.0 for t in tickers},
@@ -89,6 +90,7 @@ class TestExitManager:
     @pytest.mark.asyncio
     async def test_check_exits_removes_expired_positions(self) -> None:
         client = MagicMock()
+        client.submit_order.return_value = {"status": "filled"}
         manager = ExitManager(
             client=client,
             price_fetcher=lambda tickers: {t: 100.0 for t in tickers},
@@ -102,6 +104,7 @@ class TestExitManager:
     @pytest.mark.asyncio
     async def test_check_exits_keeps_valid_positions(self) -> None:
         client = MagicMock()
+        client.submit_order.return_value = {"status": "filled"}
         manager = ExitManager(
             client=client,
             price_fetcher=lambda tickers: {t: 100.0 for t in tickers},
@@ -115,6 +118,7 @@ class TestExitManager:
     @pytest.mark.asyncio
     async def test_exit_submits_opposite_side_for_buy(self) -> None:
         client = MagicMock()
+        client.submit_order.return_value = {"status": "filled"}
         manager = ExitManager(
             client=client,
             price_fetcher=lambda tickers: {t: 100.0 for t in tickers},
@@ -128,6 +132,7 @@ class TestExitManager:
     @pytest.mark.asyncio
     async def test_exit_submits_opposite_side_for_sell(self) -> None:
         client = MagicMock()
+        client.submit_order.return_value = {"status": "filled"}
         manager = ExitManager(
             client=client,
             price_fetcher=lambda tickers: {t: 100.0 for t in tickers},
@@ -140,6 +145,7 @@ class TestExitManager:
     @pytest.mark.asyncio
     async def test_adverse_move_triggers_exit(self) -> None:
         client = MagicMock()
+        client.submit_order.return_value = {"status": "filled"}
         manager = ExitManager(
             client=client,
             price_fetcher=lambda tickers: {t: 90.0 for t in tickers},
@@ -151,3 +157,15 @@ class TestExitManager:
         await manager._check_exits()
         assert manager.open_count() == 0
         client.submit_order.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_pending_exit_keeps_position_for_reconciliation(self) -> None:
+        client = MagicMock()
+        client.submit_order.return_value = {"status": "submitted"}
+        manager = ExitManager(
+            client=client,
+            price_fetcher=lambda tickers: {t: 100.0 for t in tickers},
+        )
+        manager.register(make_pos(entry_hours_ago=3.0))
+        await manager._check_exits()
+        assert manager.open_count() == 1

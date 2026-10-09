@@ -1,24 +1,11 @@
 import type { Metadata } from 'next'
-import { DM_Serif_Display, DM_Sans, DM_Mono } from 'next/font/google'
+import '@fontsource/dm-serif-display/latin-400.css'
+import '@fontsource/dm-sans/latin-400.css'
+import '@fontsource/dm-sans/latin-500.css'
+import '@fontsource/dm-mono/latin-300.css'
+import '@fontsource/dm-mono/latin-400.css'
+import '@fontsource/dm-mono/latin-500.css'
 import './globals.css'
-
-const dmSerifDisplay = DM_Serif_Display({
-  subsets: ['latin'],
-  weight: '400',
-  variable: '--font-dm-serif',
-})
-
-const dmSans = DM_Sans({
-  subsets: ['latin'],
-  weight: ['400', '500'],
-  variable: '--font-dm-sans',
-})
-
-const dmMono = DM_Mono({
-  subsets: ['latin'],
-  weight: ['300', '400', '500'],
-  variable: '--font-dm-mono',
-})
 
 export const metadata: Metadata = {
   title: 'Robinhood Velocity Signal Engine',
@@ -34,10 +21,7 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html
-      lang="en"
-      className={`${dmSerifDisplay.variable} ${dmSans.variable} ${dmMono.variable}`}
-    >
+    <html lang="en">
       <body>{children}</body>
     </html>
   )

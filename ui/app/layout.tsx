@@ -23,11 +23,11 @@ const dmMono = DM_Mono({
 export const metadata: Metadata = {
   title: 'Robinhood Velocity Signal Engine',
   description:
-    "Prediction market velocity signals mapped to equity positions via Robinhood's agentic trading MCP",
+    'Research on whether prediction market repricing leads related equity moves. Shadow mode only.',
   openGraph: {
     title: 'Robinhood Velocity Signal Engine',
     description:
-      "Prediction market velocity signals mapped to equity positions via Robinhood's agentic trading MCP",
+      'Research on whether prediction market repricing leads related equity moves. Shadow mode only.',
     type: 'website',
   },
 }

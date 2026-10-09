@@ -1,10 +1,10 @@
 import ArchitectureDiagram from './ArchitectureDiagram'
 
 const stats = [
-  { value: '149', label: 'tests passing' },
-  { value: '< 1s', label: 'WebSocket latency' },
-  { value: '0.15', label: 'default velocity threshold' },
-  { value: '2h', label: 'max hold time' },
+  { value: '1m', label: 'event study equity bars' },
+  { value: '60s', label: 'default study entry delay' },
+  { value: '30bp', label: 'default round trip cost' },
+  { value: '2h', label: 'hypothetical study horizon' },
 ]
 
 export default function ArchitectureSection() {

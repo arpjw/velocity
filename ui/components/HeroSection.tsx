@@ -24,7 +24,7 @@ export default function HeroSection() {
                   textTransform: 'uppercase',
                 }}
               >
-                SIGNAL ENGINE v2.0
+                VELOCITY // RESEARCH
               </span>
               <span className="cursor-blink" />
             </div>
@@ -39,7 +39,7 @@ export default function HeroSection() {
                   fontWeight: 400,
                 }}
               >
-                Prediction markets move faster than equities.
+                Do prediction markets lead equities?
               </h1>
             </div>
 
@@ -54,7 +54,7 @@ export default function HeroSection() {
                   marginTop: '4px',
                 }}
               >
-                We capture the gap.
+                Test the gap.
               </h2>
             </div>
 
@@ -69,10 +69,10 @@ export default function HeroSection() {
                   marginTop: '32px',
                 }}
               >
-                When a Kalshi or Polymarket contract reprices sharply, correlated equities take
-                minutes to catch up. This engine detects velocity spikes — Δp/Δt exceeding
-                threshold — and submits positions via Robinhood&apos;s agentic trading MCP before
-                the gap closes.
+                Velocity studies how prediction market prices change around public events.
+                We record observations, test whether related equities move afterward, and
+                compare the result with costs and simple baselines. The engine runs in shadow
+                mode and places no live orders.
               </p>
             </div>
 
@@ -81,7 +81,7 @@ export default function HeroSection() {
               style={{ display: 'flex', gap: '12px', marginTop: '40px', flexWrap: 'wrap' }}
             >
               <a
-                href="https://github.com/aryasomu"
+                href="https://github.com/arpjw/velocity"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="btn-primary"

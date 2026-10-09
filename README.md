@@ -53,7 +53,7 @@ python -m scripts.run_event_study \
   --output data/event-study-report.json
 ```
 
-The dates above show command syntax; choose a real release and its matching market. Use `--historical` with the fetch command for archived markets. The current default study uses a five percentage point move within fifteen minutes, sixty seconds of entry latency, thirty basis points of round trip cost, and a two-hour horizon. These are research assumptions, not optimized trading parameters. Do not interpret a positive result from a few correlated markets or a single release as evidence of an edge.
+The dates above show command syntax; choose a real release and its matching market. Use `--historical` with the fetch command for archived markets. The study replays the running velocity rule, which defaults to 0.15 probability points per minute over a five-minute rolling window. It looks for signals in the fifteen minutes after release, then assumes sixty seconds of entry latency, thirty basis points of round trip cost, and a two-hour horizon. These are research assumptions, not optimized trading parameters. Do not interpret a positive result from a few correlated markets or a single release as evidence of an edge.
 
 ## Current limits and next decisions
 
@@ -72,5 +72,7 @@ cd ui && npm ci && npm run build
 ```
 
 The UI is a Next.js site. Its `/api/markets` route fetches public KXFED markets server-side, displays recently traded contracts, and labels values as last trades. It does not display simulated P&L. `UI.md` is the original design brief; this README and the current code describe present behavior.
+
+GitHub Actions runs the Python test suite on Python 3.11 and 3.13, and builds the UI and audits its production dependencies on Node 22 for pushes and pull requests. Run `python scripts/healthcheck.py` separately when checking live API reachability.
 
 The connector format and extension workflow are in [CONTRIBUTING_CONNECTORS.md](CONTRIBUTING_CONNECTORS.md). Additional modules for sizing, alerts, an Oracle, a dashboard, and a legacy backtest remain in the repository. They have not been validated as a profitable or safe live trading system.

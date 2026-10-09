@@ -340,6 +340,8 @@ def compute_summary(
 def _sharpe(returns: list[float]) -> float:
     if len(returns) < 2:
         return 0.0
+    if min(returns) == max(returns):
+        return 0.0
     mean = sum(returns) / len(returns)
     variance = sum((r - mean) ** 2 for r in returns) / (len(returns) - 1)
     std = variance ** 0.5

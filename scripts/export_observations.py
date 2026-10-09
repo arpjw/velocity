@@ -13,16 +13,26 @@ from research.event_study import parse_time
 
 def export_observations(input_path: Path, output_path: Path, ticker: str | None = None) -> int:
     rows: list[dict] = []
+    seen: set[str | tuple] = set()
     with input_path.open() as file:
         for line in file:
             try:
                 record = json.loads(line)
                 if record.get("source") != "kalshi":
                     continue
+                if record.get("price_kind", "last_trade") != "last_trade":
+                    continue
                 if ticker and record.get("ticker") != ticker:
+                    continue
+                identity = record.get("observation_id") or (
+                    record["source"], record["ticker"], record["timestamp"],
+                    record["price"], record["volume"],
+                )
+                if identity in seen:
                     continue
                 observed_at = parse_time(record["observed_at"])
                 source_at = parse_time(record["timestamp"])
+                seen.add(identity)
                 rows.append({
                     "timestamp": max(observed_at, source_at).isoformat(),
                     "ticker": record["ticker"],

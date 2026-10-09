@@ -157,18 +157,20 @@ class KalshiPoller:
             return
         try:
             price_value = float(price)
-            volume_value = int(float(volume))
+            volume_value = float(volume)
         except (TypeError, ValueError):
             return
         if not 0 <= price_value <= 1:
             return
         timestamp = source_time_from_ms(msg.get("ts_ms")) or datetime.now(tz=timezone.utc)
         point = PricePoint(timestamp=timestamp, price=price_value, volume=volume_value)
-        append_observation(
+        if not append_observation(
             source="kalshi", ticker=market_ticker, source_timestamp=timestamp,
             price=price_value, volume=volume_value,
             bid=msg.get("yes_bid_dollars"), ask=msg.get("yes_ask_dollars"),
-        )
+            price_kind="last_trade",
+        ):
+            return
         signal = self._tracker.update(market_ticker, point)
         if signal is not None:
             _log_signal(signal)
@@ -260,17 +262,19 @@ class KalshiPoller:
                 continue
             try:
                 price_value = float(price)
-                volume_value = int(float(volume))
+                volume_value = float(volume)
             except (TypeError, ValueError):
                 continue
             if not 0 <= price_value <= 1:
                 continue
             point = PricePoint(timestamp=now, price=price_value, volume=volume_value)
-            append_observation(
+            if not append_observation(
                 source="kalshi", ticker=ticker, source_timestamp=now,
                 price=price_value, volume=volume_value,
                 bid=market.get("yes_bid_dollars"), ask=market.get("yes_ask_dollars"),
-            )
+                price_kind="last_trade",
+            ):
+                continue
             signal = self._tracker.update(ticker, point)
             if signal is not None:
                 _log_signal(signal)

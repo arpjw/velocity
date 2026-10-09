@@ -1,19 +1,22 @@
 from collections import defaultdict, deque
 from dataclasses import dataclass
 from datetime import datetime
+import logging
+import math
 import os
 
 VELOCITY_THRESHOLD = float(os.getenv("VELOCITY_THRESHOLD", "0.15"))
 VELOCITY_WINDOW_MINUTES = int(os.getenv("VELOCITY_WINDOW_MINUTES", "5"))
 
 _MIN_DT_MINUTES = 0.5  # 30-second floor; sub-30s windows produce unreliable velocity from WS tick bursts
+logger = logging.getLogger(__name__)
 
 
 @dataclass
 class PricePoint:
     timestamp: datetime
     price: float  # normalized 0.0–1.0
-    volume: int
+    volume: float
 
 
 @dataclass
@@ -23,7 +26,7 @@ class VelocitySignal:
     window_minutes: int
     timestamp: datetime
     price: float
-    volume_delta: int
+    volume_delta: float
     source: str = "unknown"
 
 
@@ -93,6 +96,25 @@ class VelocityTracker:
 
     def update(self, slug: str, point: PricePoint) -> VelocitySignal | None:
         history = self._history[slug]
+        if (
+            point.timestamp.tzinfo is None
+            or not math.isfinite(point.price)
+            or not 0 <= point.price <= 1
+            or not math.isfinite(point.volume)
+            or point.volume < 0
+        ):
+            logger.warning("dropping invalid market observation for %s", slug)
+            return None
+        if history and point.timestamp < history[-1].timestamp:
+            logger.warning("dropping out-of-order market observation for %s", slug)
+            return None
+        if history and point.timestamp == history[-1].timestamp:
+            if point.price == history[-1].price and point.volume == history[-1].volume:
+                return None
+            history.pop()
+        if history and point.volume < history[-1].volume:
+            logger.warning("volume counter reset for %s; clearing velocity history", slug)
+            history.clear()
         history.append(point)
         cutoff = point.timestamp.timestamp() - self.history_minutes * 60
         while history and history[0].timestamp.timestamp() < cutoff:
@@ -106,7 +128,9 @@ class VelocityTracker:
         if not is_volume_spike(points, self.window_minutes, self.volume_multiplier):
             return None
 
-        volume_delta = points[-1].volume - points[0].volume if len(points) >= 2 else 0
+        window_start = point.timestamp.timestamp() - self.window_minutes * 60
+        window = [p for p in points if p.timestamp.timestamp() >= window_start]
+        volume_delta = window[-1].volume - window[0].volume
         return VelocitySignal(
             contract_slug=slug,
             velocity=velocity,

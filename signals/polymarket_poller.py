@@ -91,14 +91,14 @@ class PolymarketPoller:
         tokens = market.get("tokens") or []
         return next((token for token in tokens if str(token.get("outcome", "")).lower() == "yes"), None)
 
-    def _extract_price_volume(self, market: dict) -> tuple[float, int] | None:
+    def _extract_price_volume(self, market: dict) -> tuple[float, float] | None:
         token = self._yes_token(market)
         if token is None:
             return None
         price = token.get("price")
         if price is None:
             return None
-        volume = int(float(market.get("volume", 0) or 0))
+        volume = float(market.get("volume", 0) or 0)
         return float(price), volume
 
     async def _resolve_assets(self) -> None:
@@ -113,7 +113,8 @@ class PolymarketPoller:
             if token and token.get("token_id"):
                 asset_id = str(token["token_id"])
                 self._asset_to_condition[asset_id] = condition_id
-                self._volume_by_asset[asset_id] = float(market.get("volume", 0) or 0)
+                # REST reports market-wide volume, not volume for this Yes asset.
+                self._volume_by_asset.setdefault(asset_id, 0.0)
 
     async def poll_once(
         self,
@@ -132,15 +133,10 @@ class PolymarketPoller:
             if extracted is None:
                 continue
             price, volume = extracted
-            point = PricePoint(timestamp=now, price=price, volume=volume)
             append_observation(
                 source="polymarket", ticker=condition_id, source_timestamp=now,
-                price=price, volume=volume,
+                price=price, volume=volume, price_kind="reference",
             )
-            signal = self._tracker.update(condition_id, point)
-            if signal is not None:
-                _log_signal(signal)
-                await on_signal(signal)
 
     async def _send_subscribe(self, ws) -> None:
         msg = {"type": "market", "assets_ids": list(self._asset_to_condition)}
@@ -175,7 +171,7 @@ class PolymarketPoller:
                 try:
                     if event_type == "last_trade_price":
                         price = float(change["price"])
-                        self._volume_by_asset[asset_id] += float(change.get("size") or 0)
+                        next_volume = self._volume_by_asset[asset_id] + float(change.get("size") or 0)
                     else:
                         bid = float(change["best_bid"])
                         ask = float(change["best_ask"])
@@ -187,16 +183,19 @@ class PolymarketPoller:
                 if not 0 <= price <= 1:
                     continue
                 timestamp = _source_time_from_ms(item.get("timestamp")) or datetime.now(tz=timezone.utc)
-                point = PricePoint(
-                    timestamp=timestamp,
-                    price=price,
-                    volume=int(self._volume_by_asset[asset_id]),
-                )
-                append_observation(
+                volume = next_volume if event_type == "last_trade_price" else self._volume_by_asset[asset_id]
+                if not append_observation(
                     source="polymarket", ticker=condition_id, source_timestamp=timestamp,
-                    price=price, volume=point.volume,
+                    price=price, volume=volume,
                     bid=change.get("best_bid"), ask=change.get("best_ask"),
-                )
+                    price_kind="last_trade" if event_type == "last_trade_price" else "midpoint",
+                    asset_id=asset_id,
+                ):
+                    continue
+                if event_type != "last_trade_price":
+                    continue
+                self._volume_by_asset[asset_id] = volume
+                point = PricePoint(timestamp=timestamp, price=price, volume=volume)
                 signal = self._tracker.update(condition_id, point)
                 if signal is not None:
                     _log_signal(signal)

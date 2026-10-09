@@ -11,9 +11,9 @@
   --green: #22c55e;
   --red-subtle: #ef4444;
 
-  --font-serif: var(--font-dm-serif), 'DM Serif Display', Georgia, serif;
-  --font-sans: var(--font-dm-sans), 'DM Sans', system-ui, sans-serif;
-  --font-mono: var(--font-dm-mono), 'DM Mono', 'Courier New', monospace;
+  --font-serif: 'DM Serif Display', Georgia, serif;
+  --font-sans: 'DM Sans', system-ui, sans-serif;
+  --font-mono: 'DM Mono', 'Courier New', monospace;
 
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
 }

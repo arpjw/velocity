@@ -60,10 +60,13 @@ class TestWsMessageParsing:
 
     @pytest.mark.asyncio
     async def test_dollar_price_parsed_as_probability(self, poller: KalshiPoller) -> None:
-        for price in [0, 0.25, 0.5, 0.75, 1]:
+        base_ts = datetime.now(tz=timezone.utc)
+        for index, price in enumerate([0, 0.25, 0.5, 0.75, 1]):
             raw = json.dumps({
                 "type": "ticker",
-                "msg": {"market_ticker": "KXFED", "price_dollars": str(price), "volume_fp": "0.00"},
+                "msg": {"market_ticker": "KXFED", "price_dollars": str(price),
+                        "volume_fp": "0.00",
+                        "ts_ms": int((base_ts + timedelta(minutes=index)).timestamp() * 1000)},
             })
             await poller._handle_ws_message(raw, AsyncMock())
         history = list(poller._tracker._history["KXFED"])
@@ -71,6 +74,14 @@ class TestWsMessageParsing:
         assert prices[0] == pytest.approx(0.0)
         assert prices[2] == pytest.approx(0.5)
         assert prices[4] == pytest.approx(1.0)
+
+    @pytest.mark.asyncio
+    async def test_fractional_volume_is_preserved(self, poller: KalshiPoller) -> None:
+        raw = json.dumps({"type": "ticker", "msg": {
+            "market_ticker": "KXFED", "price_dollars": "0.55", "volume_fp": "10.75",
+        }})
+        await poller._handle_ws_message(raw, AsyncMock())
+        assert poller._tracker._history["KXFED"][-1].volume == pytest.approx(10.75)
 
     @pytest.mark.asyncio
     async def test_non_ticker_message_ignored(self, poller: KalshiPoller) -> None:

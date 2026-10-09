@@ -1,12 +1,11 @@
 import asyncio
 import json
-from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from signals.polymarket_poller import PolymarketPoller
-from signals.velocity import PricePoint, VelocitySignal, VelocityTracker
+from signals.velocity import VelocityTracker
 
 
 def make_poller(use_websocket=True) -> PolymarketPoller:
@@ -31,23 +30,29 @@ def price_change_list(market: str, price: float) -> str:
     return json.dumps([json.loads(price_change_msg(market, price))])
 
 
-def make_dummy_signal(slug: str = "cond-1") -> VelocitySignal:
-    return VelocitySignal(
-        contract_slug=slug,
-        velocity=0.25,
-        window_minutes=5,
-        timestamp=datetime.now(tz=timezone.utc),
-        price=0.6,
-        volume_delta=10,
-    )
-
-
 class TestWsMessageParsing:
     @pytest.mark.asyncio
-    async def test_price_change_dict_fires_signal(self):
+    async def test_rest_reference_does_not_trigger_trade_signal(self, tmp_path, monkeypatch):
         poller = make_poller()
-        dummy = make_dummy_signal("cond-1")
-        poller._tracker.update = MagicMock(return_value=dummy)
+        poller._condition_ids = ["cond-1"]
+        poller._fetch_market = AsyncMock(return_value={
+            "tokens": [{"outcome": "Yes", "price": "0.6"}], "volume": "10",
+        })
+        poller._tracker.update = MagicMock()
+        log = tmp_path / "observations.jsonl"
+        monkeypatch.setenv("OBSERVATION_LOG_PATH", str(log))
+
+        await poller.poll_once(AsyncMock())
+
+        poller._tracker.update.assert_not_called()
+        assert json.loads(log.read_text())["price_kind"] == "reference"
+
+    @pytest.mark.asyncio
+    async def test_price_change_dict_is_logged_without_a_trade_signal(self, tmp_path, monkeypatch):
+        poller = make_poller()
+        log = tmp_path / "observations.jsonl"
+        monkeypatch.setenv("OBSERVATION_LOG_PATH", str(log))
+        poller._tracker.update = MagicMock()
         signals = []
 
         async def on_signal(sig):
@@ -56,14 +61,14 @@ class TestWsMessageParsing:
         raw = price_change_msg("asset-1", 0.6)
         await poller._handle_ws_message(raw, on_signal)
 
-        assert len(signals) == 1
-        assert signals[0].contract_slug == "cond-1"
+        assert signals == []
+        poller._tracker.update.assert_not_called()
+        assert json.loads(log.read_text())["price_kind"] == "midpoint"
 
     @pytest.mark.asyncio
-    async def test_price_change_list_fires_signal(self):
+    async def test_price_change_list_does_not_fire_trade_signal(self):
         poller = make_poller()
-        dummy = make_dummy_signal("cond-1")
-        poller._tracker.update = MagicMock(return_value=dummy)
+        poller._tracker.update = MagicMock()
         signals = []
 
         async def on_signal(sig):
@@ -72,7 +77,8 @@ class TestWsMessageParsing:
         raw = price_change_list("asset-1", 0.6)
         await poller._handle_ws_message(raw, on_signal)
 
-        assert len(signals) == 1
+        assert signals == []
+        poller._tracker.update.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_unknown_event_type_ignored(self):

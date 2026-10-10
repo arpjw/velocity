@@ -39,6 +39,8 @@ To export observations for analysis:
 python -m scripts.export_observations --output data/observed-kxfed.csv
 ```
 
+To inspect the prospective log before exporting it, run `python -m scripts.audit_observation_log --output data/observation-audit.json`. The report hashes the input and lists receipt gaps, delayed records, source clock reversals, duplicate IDs, and malformed rows per source and ticker. `--start` and `--end` bound the receipt-time window and expose gaps at its edges; `--gap-seconds` sets the gap threshold. A long gap can mean a quiet market or a stopped collector, so compare it with the connector health log before classifying an outage. The audit is offline and does not notify anyone.
+
 Do not put broker keys or private account data in the repository.
 
 ## Study a Fed release

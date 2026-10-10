@@ -10,6 +10,7 @@ The default mode is **shadow**: it records market observations and candidate sig
 - The Kalshi connector refreshes discovered markets every five minutes and reports observation freshness separately from signal time. `KALSHI_DISCOVERY_INTERVAL_SECONDS` and `KALSHI_STALE_SECONDS` adjust the refresh and stale thresholds.
 - Polymarket CLOB market subscription by resolved outcome asset ID.
 - Timestamped observation and shadow candidate logs. The export uses the later of exchange and receipt timestamps.
+- Shadow candidates are deduplicated by source, contract, and direction over a configurable thirty minute window, including across restarts (`SHADOW_DEDUP_WINDOW_MINUTES`).
 - A point-in-time Fed event study using exact Kalshi market tickers and one-minute equity bars, with delayed entry, costs, prerelease checks, and chronological train and holdout summaries.
 - Mock execution code for software checks. Mock fills and the older daily-bar backtest are not evidence of a tradable edge.
 

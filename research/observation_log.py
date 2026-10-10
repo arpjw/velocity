@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import hashlib
+import fcntl
 import json
 import logging
 import math
 import os
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from datetime import timedelta
 from pathlib import Path
 from typing import Literal
 
@@ -111,8 +113,31 @@ def append_observation(
     return True
 
 
-def append_shadow_signal(record: dict) -> None:
+def append_shadow_signal(record: dict, *, window_minutes: int = 30) -> bool:
+    """Record only the first candidate per source, contract, and direction in a window."""
+    if window_minutes <= 0:
+        raise ValueError("shadow dedup window must be positive")
     path = Path(os.getenv("SHADOW_SIGNAL_LOG_PATH", "logs/shadow_signals.jsonl"))
     path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a") as file:
+    candidate_time = datetime.fromisoformat(record["observed_at"])
+    direction = 1 if record["velocity"] > 0 else -1
+    with path.open("a+") as file:
+        fcntl.flock(file.fileno(), fcntl.LOCK_EX)
+        file.seek(0)
+        for line in file:
+            try:
+                previous = json.loads(line)
+                previous_time = datetime.fromisoformat(previous["observed_at"])
+                previous_direction = 1 if previous["velocity"] > 0 else -1
+            except (json.JSONDecodeError, KeyError, TypeError, ValueError):
+                continue
+            if (previous.get("source"), previous.get("contract_slug"), previous_direction) == (
+                record["source"], record["contract_slug"], direction
+            ) and timedelta(0) <= candidate_time - previous_time < timedelta(minutes=window_minutes):
+                return False
+        identity = json.dumps([
+            record["source"], record["contract_slug"], direction, record["timestamp"]
+        ], separators=(",", ":"))
+        record["candidate_id"] = hashlib.sha256(identity.encode()).hexdigest()
         file.write(json.dumps(record) + "\n")
+    return True

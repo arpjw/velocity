@@ -227,13 +227,9 @@ async def handle_signal(
     session_memory: SessionMemory | None = None,
 ) -> None:
     global _signal_count
-    if session_memory:
-        session_memory.record_fired()
-
     if os.getenv("EXECUTION_MODE", "shadow") == "shadow":
-        _signal_count += 1
         basket = mapper.get_basket(signal.contract_slug)
-        append_shadow_signal({
+        recorded = append_shadow_signal({
             "observed_at": datetime.now(tz=timezone.utc).isoformat(),
             "timestamp": signal.timestamp.isoformat(),
             "source": signal.source,
@@ -243,10 +239,20 @@ async def handle_signal(
             "volume_delta": signal.volume_delta,
             "equity_market_open": hours_guard.is_open(),
             "hypothesis_basket": basket.get("basket", []) if basket else [],
-        })
+        }, window_minutes=int(os.getenv("SHADOW_DEDUP_WINDOW_MINUTES", "30")))
+        if not recorded:
+            if session_memory:
+                session_memory.record_suppressed()
+            return
+        _signal_count += 1
+        if session_memory:
+            session_memory.record_fired()
         if session_memory:
             session_memory.write_snapshot(client)
         return
+
+    if session_memory:
+        session_memory.record_fired()
 
     if not hours_guard.is_open():
         mode = os.getenv("OFF_HOURS_MODE", "suppress")

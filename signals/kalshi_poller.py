@@ -108,11 +108,13 @@ class KalshiPoller:
         tracker: VelocityTracker,
         private_key_path: str | None = None,
         use_websocket: bool = _USE_WEBSOCKET,
+        on_observation: Callable[[datetime], None] | None = None,
     ) -> None:
         self._key_id = api_key
         self._tracked = tracked_tickers
         self._tracker = tracker
         self._use_websocket = use_websocket
+        self._on_observation = on_observation
         private_key_path = private_key_path or os.getenv("KALSHI_PRIVATE_KEY_PATH")
         self._private_key = _load_private_key(private_key_path) if private_key_path else None
         if not api_key or self._private_key is None:
@@ -171,6 +173,8 @@ class KalshiPoller:
             price_kind="last_trade",
         ):
             return
+        if self._on_observation:
+            self._on_observation(datetime.now(tz=timezone.utc))
         signal = self._tracker.update(market_ticker, point)
         if signal is not None:
             _log_signal(signal)
@@ -275,6 +279,8 @@ class KalshiPoller:
                 price_kind="last_trade",
             ):
                 continue
+            if self._on_observation:
+                self._on_observation(datetime.now(tz=timezone.utc))
             signal = self._tracker.update(ticker, point)
             if signal is not None:
                 _log_signal(signal)

@@ -33,6 +33,9 @@ export default function Header() {
         RH // VELOCITY
       </a>
       <nav style={{ display: 'flex', gap: '24px' }}>
+        <a href="/research" className="nav-link" style={{ fontFamily: 'var(--font-mono)', fontSize: '12px', color: 'var(--text-tertiary)' }}>
+          Research
+        </a>
         {[
           { label: 'GitHub', href: 'https://github.com/arpjw/velocity' },
           { label: 'arya somu', href: 'https://aryasomu.com' },

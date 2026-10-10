@@ -227,13 +227,9 @@ async def handle_signal(
     session_memory: SessionMemory | None = None,
 ) -> None:
     global _signal_count
-    if session_memory:
-        session_memory.record_fired()
-
     if os.getenv("EXECUTION_MODE", "shadow") == "shadow":
-        _signal_count += 1
         basket = mapper.get_basket(signal.contract_slug)
-        append_shadow_signal({
+        recorded = append_shadow_signal({
             "observed_at": datetime.now(tz=timezone.utc).isoformat(),
             "timestamp": signal.timestamp.isoformat(),
             "source": signal.source,
@@ -243,10 +239,20 @@ async def handle_signal(
             "volume_delta": signal.volume_delta,
             "equity_market_open": hours_guard.is_open(),
             "hypothesis_basket": basket.get("basket", []) if basket else [],
-        })
+        }, window_minutes=int(os.getenv("SHADOW_DEDUP_WINDOW_MINUTES", "30")))
+        if not recorded:
+            if session_memory:
+                session_memory.record_suppressed()
+            return
+        _signal_count += 1
+        if session_memory:
+            session_memory.record_fired()
         if session_memory:
             session_memory.write_snapshot(client)
         return
+
+    if session_memory:
+        session_memory.record_fired()
 
     if not hours_guard.is_open():
         mode = os.getenv("OFF_HOURS_MODE", "suppress")
@@ -312,6 +318,24 @@ async def _queue_replay_worker(
                     session_memory=session_memory,
                 )
         was_open = is_open
+
+
+async def _connector_health_worker(registry: PrismRegistry, interval_seconds: float) -> None:
+    if interval_seconds <= 0:
+        raise ValueError("connector health interval must be positive")
+    path = Path(os.getenv("CONNECTOR_HEALTH_LOG_PATH", "logs/connector_health.jsonl"))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    while True:
+        health = registry.get_health_report()
+        snapshot = {"observed_at": datetime.now(tz=timezone.utc).isoformat(),
+                    "connectors": health}
+        with path.open("a") as file:
+            file.write(json.dumps(snapshot) + "\n")
+        for slug, report in health.items():
+            if report.get("status") != "ok":
+                logger.warning("connector %s status=%s: %s", slug, report.get("status"),
+                               report.get("message"))
+        await asyncio.sleep(interval_seconds)
 
 
 def _print_startup_banner(
@@ -409,7 +433,9 @@ async def main() -> None:
             session_memory=session_memory,
         )
 
-    coroutines: list = [exit_manager.run()]
+    coroutines: list = [exit_manager.run(), _connector_health_worker(
+        registry, float(os.getenv("CONNECTOR_HEALTH_INTERVAL_SECONDS", "60"))
+    )]
 
     for connector in registry.get_all():
         async def on_connector_signal(sig: VelocitySignal, source: str = connector.metadata.slug) -> None:

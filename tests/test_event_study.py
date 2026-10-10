@@ -9,6 +9,7 @@ from research.event_study import (
     Quote,
     evaluate_event,
     first_signal,
+    load_equity_bars,
     load_events,
     next_open,
     run_study,
@@ -66,6 +67,38 @@ def test_event_prices_first_available_intraday_open_after_latency() -> None:
 
 def test_stale_equity_bar_is_not_used() -> None:
     assert next_open([bar(5, 100)], RELEASE, max_delay_minutes=2) is None
+
+
+def test_bid_ask_model_charges_spread_for_long_and_short() -> None:
+    bars = [
+        EquityBar(RELEASE + timedelta(minutes=minute), "XLF", opening, opening - 0.1, opening + 0.1)
+        for minute, opening in [(1, 100), (2, 101), (122, 103)]
+    ]
+    for signal_price, expected_entry, expected_exit in [(0.56, 101.1, 102.9),
+                                                        (0.44, 100.9, 103.1)]:
+        result = evaluate_event(
+            event(), [quote(-1, 0.5, 10), quote(1, signal_price, 20)], bars,
+            threshold=0.02, window_minutes=15, hold_minutes=120,
+            latency_seconds=60, round_trip_cost_bps=0, price_model="bid_ask",
+        )
+        assert result["status"] == "priced"
+        assert result["entry_price"] == expected_entry
+        assert result["exit_price"] == expected_exit
+
+
+def test_bid_ask_model_reports_missing_quotes(tmp_path: Path) -> None:
+    result = evaluate_event(
+        event(), [quote(-1, 0.5, 10), quote(1, 0.56, 20)],
+        [bar(1, 100), bar(2, 101), bar(122, 103)],
+        threshold=0.02, window_minutes=15, hold_minutes=120,
+        latency_seconds=60, round_trip_cost_bps=30, price_model="bid_ask",
+    )
+    assert result["status"] == "missing_equity_quotes"
+    csv_file = tmp_path / "equity.csv"
+    csv_file.write_text("timestamp,ticker,open,bid,ask\n"
+                        "2026-01-01T14:00:00Z,XLF,100,101,99\n")
+    with pytest.raises(ValueError, match="equity bid/ask"):
+        load_equity_bars(csv_file)
 
 
 def test_chronological_holdout_and_missing_signal() -> None:

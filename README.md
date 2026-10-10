@@ -7,8 +7,10 @@ The default mode is **shadow**: it records market observations and candidate sig
 ## What is built
 
 - Kalshi public REST discovery of active, traded Fed contracts, plus polling and WebSocket parsing for current dollar-denominated price fields.
+- The Kalshi connector refreshes discovered markets every five minutes and reports observation freshness separately from signal time. `KALSHI_DISCOVERY_INTERVAL_SECONDS` and `KALSHI_STALE_SECONDS` adjust the refresh and stale thresholds.
 - Polymarket CLOB market subscription by resolved outcome asset ID.
 - Timestamped observation and shadow candidate logs. The export uses the later of exchange and receipt timestamps.
+- Shadow candidates are deduplicated by source, contract, and direction over a configurable thirty minute window, including across restarts (`SHADOW_DEDUP_WINDOW_MINUTES`).
 - A point-in-time Fed event study using exact Kalshi market tickers and one-minute equity bars, with delayed entry, costs, prerelease checks, and chronological train and holdout summaries.
 - Mock execution code for software checks. Mock fills and the older daily-bar backtest are not evidence of a tradable edge.
 
@@ -27,6 +29,8 @@ python main.py --dry-run
 
 The example environment leaves market credentials blank. Public Kalshi polling can run without a key. Configure optional sources in `.env` only if you use them. The process runs until interrupted; `--dry-run` forces shadow mode even if the environment requests mock execution. Market observations go to `logs/market_observations.jsonl`, and candidate signals go to `logs/shadow_signals.jsonl`. No signal during a short run is a normal outcome.
 
+The collector writes connector status snapshots to `logs/connector_health.jsonl` every minute. Run `python -m scripts.check_collector_health` to check freshness and degraded connectors; it exits nonzero when the log is missing, stale, or unhealthy. This is a local status check, not an alerting service.
+
 To export observations for analysis:
 
 ```bash
@@ -37,7 +41,7 @@ Do not put broker keys or private account data in the repository.
 
 ## Study a Fed release
 
-The study requires a manually reviewed manifest with the actual public release time, an exact `KXFED-...` market ticker, a chosen equity, and a prespecified direction mapping. Start with [the manifest template](research/events.example.csv). Provide a point-in-time equity CSV with `timestamp,ticker,open`, where timestamps mark the start of each one-minute UTC bar. See [research instructions](research/README.md) for the full input definitions and limitations.
+The study requires a manually reviewed manifest with the actual public release time, an exact `KXFED-...` market ticker, a chosen equity, a prespecified direction mapping, and source references. Start with [the manifest template](research/events.example.csv). Provide a point-in-time equity CSV with `timestamp,ticker,open`, where timestamps mark the start of each one-minute UTC bar. See [research instructions](research/README.md) for the full input definitions and limitations. Run `python -m scripts.audit_research_data` on the CSVs before interpreting a report; its coverage result does not establish a trading edge.
 
 ```bash
 python -m scripts.fetch_kalshi_history \
@@ -72,6 +76,8 @@ cd ui && npm ci && npm run build
 ```
 
 The UI is a Next.js site. Its `/api/markets` route fetches public KXFED markets server-side, displays recently traded contracts, and labels values as last trades. It does not display simulated P&L. `UI.md` is the original design brief; this README and the current code describe present behavior.
+
+The `/research` page reads the audit and study JSON reports locally in the browser. It shows coverage, missing rows, training and holdout summaries, and per-release results without uploading research files.
 
 GitHub Actions runs the Python test suite on Python 3.11 and 3.13, and builds the UI and audits its production dependencies on Node 22 for pushes and pull requests. Run `python scripts/healthcheck.py` separately when checking live API reachability.
 

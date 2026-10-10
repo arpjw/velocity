@@ -34,6 +34,30 @@ async def test_shadow_mode_records_candidate_without_orders(tmp_path: Path, monk
     assert recorded["contract_slug"] == "KXFED-26OCT-T4.25"
     assert recorded["equity_market_open"] is False
     assert recorded["source"] == "kalshi_fed"
+    assert len(recorded["candidate_id"]) == 64
+    await handle_signal(signal, mapper, client, MagicMock(), MagicMock(), MagicMock(), hours)
+    assert len(log.read_text().splitlines()) == 1
+
+
+@pytest.mark.asyncio
+async def test_shadow_candidate_dedup_allows_opposite_direction(tmp_path: Path, monkeypatch) -> None:
+    log = tmp_path / "shadow.jsonl"
+    monkeypatch.setenv("EXECUTION_MODE", "shadow")
+    monkeypatch.setenv("SHADOW_SIGNAL_LOG_PATH", str(log))
+    signal = VelocitySignal(
+        contract_slug="KXFED-26OCT-T4.25", velocity=0.06, window_minutes=5,
+        timestamp=datetime(2026, 10, 9, 18, tzinfo=timezone.utc),
+        price=0.6, volume_delta=100, source="kalshi_fed",
+    )
+    hours = MagicMock()
+    hours.is_open.return_value = False
+    mapper = MagicMock()
+    mapper.get_basket.return_value = {"basket": ["XLF"]}
+    arguments = (mapper, MagicMock(), MagicMock(), MagicMock(), MagicMock(), hours)
+    await handle_signal(signal, *arguments)
+    signal.velocity = -0.06
+    await handle_signal(signal, *arguments)
+    assert len(log.read_text().splitlines()) == 2
 
 
 def test_export_uses_receipt_time_when_update_arrives_late(tmp_path: Path) -> None:

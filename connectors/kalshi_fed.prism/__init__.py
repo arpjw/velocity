@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import os
 from datetime import datetime, timezone
 from typing import Callable
@@ -8,6 +9,8 @@ from signals.kalshi_poller import KalshiPoller
 from signals.velocity import VelocitySignal, VelocityTracker
 from signals.contract_mapper import ContractMapper
 from signals.kalshi_market_data import discover_markets
+
+logger = logging.getLogger(__name__)
 
 
 class KalshiFedConnector(PrismConnector):
@@ -29,6 +32,8 @@ class KalshiFedConnector(PrismConnector):
     def __init__(self) -> None:
         self._running_task: asyncio.Task | None = None
         self._last_update: datetime | None = None
+        self._last_signal: datetime | None = None
+        self._started_at: datetime | None = None
         self._status = "ok"
         self._message = "not started"
 
@@ -39,33 +44,62 @@ class KalshiFedConnector(PrismConnector):
         handle_signal: Callable,
     ) -> None:
         self._running_task = asyncio.current_task()
-        self._message = "running"
+        self._started_at = datetime.now(tz=timezone.utc)
+        self._message = "waiting for observations"
 
         tickers_env = os.getenv("KALSHI_TICKERS", "")
-        tracked = [t.strip() for t in tickers_env.split(",") if t.strip()]
-        while not tracked:
-            try:
-                markets = await discover_markets("KXFED")
-                tracked = [market.ticker for market in markets]
-            except Exception as exc:
-                self._status = "degraded"
-                self._message = f"market discovery failed: {exc}"
-            if not tracked:
-                await asyncio.sleep(300)
+        configured = [t.strip() for t in tickers_env.split(",") if t.strip()]
         interval = float(os.getenv("POLL_INTERVAL_SECONDS", "30"))
-
-        poller = KalshiPoller(
-            api_key=os.getenv("KALSHI_API_KEY", ""),
-            tracked_tickers=tracked,
-            tracker=tracker,
-        )
+        refresh_seconds = float(os.getenv("KALSHI_DISCOVERY_INTERVAL_SECONDS", "300"))
+        if interval <= 0 or refresh_seconds <= 0:
+            raise ValueError("poll and discovery intervals must be positive")
 
         async def _on_signal(sig: VelocitySignal) -> None:
-            self._last_update = datetime.now(tz=timezone.utc)
+            self._last_signal = datetime.now(tz=timezone.utc)
             await handle_signal(sig)
 
+        def _on_observation(timestamp: datetime) -> None:
+            self._last_update = timestamp
+            self._status = "ok"
+            self._message = "receiving observations"
+
         try:
-            await poller.run(interval_seconds=interval, on_signal=_on_signal)
+            tracked = configured
+            while True:
+                if not configured:
+                    try:
+                        markets = await discover_markets("KXFED")
+                        discovered = [market.ticker for market in markets]
+                        if discovered:
+                            tracked = discovered
+                        else:
+                            self._status = "degraded"
+                            self._message = "no traded KXFED markets found"
+                    except Exception as exc:
+                        self._status = "degraded"
+                        self._message = f"market discovery failed: {exc}"
+                        logger.warning("KXFED market discovery failed: %s", exc)
+                if not tracked:
+                    await asyncio.sleep(refresh_seconds)
+                    continue
+                poller = KalshiPoller(
+                    api_key=os.getenv("KALSHI_API_KEY", ""),
+                    tracked_tickers=tracked,
+                    tracker=tracker,
+                    on_observation=_on_observation,
+                )
+                try:
+                    await asyncio.wait_for(
+                        poller.run(interval_seconds=interval, on_signal=_on_signal),
+                        timeout=refresh_seconds,
+                    )
+                except asyncio.TimeoutError:
+                    pass
+                except Exception as exc:
+                    self._status = "degraded"
+                    self._message = f"poller failed: {exc}"
+                    logger.exception("KXFED poller failed")
+                    await asyncio.sleep(min(30, refresh_seconds))
         except asyncio.CancelledError:
             self._message = "stopped"
             raise
@@ -75,8 +109,14 @@ class KalshiFedConnector(PrismConnector):
             self._running_task.cancel()
 
     def health_check(self) -> dict:
+        reference = self._last_update or self._started_at
+        age = (datetime.now(tz=timezone.utc) - reference).total_seconds() if reference else None
+        stale_seconds = float(os.getenv("KALSHI_STALE_SECONDS", "180"))
+        status = "degraded" if age is not None and age > stale_seconds else self._status
         return {
-            "status": self._status,
-            "message": self._message,
+            "status": status,
+            "message": "observations stale" if status == "degraded" and age is not None and age > stale_seconds else self._message,
             "last_update": self._last_update.isoformat() if self._last_update else None,
+            "last_signal": self._last_signal.isoformat() if self._last_signal else None,
+            "observation_age_seconds": round(age, 1) if age is not None else None,
         }

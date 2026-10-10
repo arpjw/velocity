@@ -26,6 +26,8 @@ Prospective observations include a schema version, stable observation ID, price 
 
 `equity.csv` has `timestamp,ticker,open`. Each timestamp is the **start** of a one minute bar in UTC. Use raw, point-in-time prices from an intraday data provider, including delisted symbols when relevant. Do not use daily bars or revised adjusted prices. The study buys or sells hypothetically at the first bar open after latency and exits at the first bar open after the hold window. A bar more than two minutes late is treated as missing.
 
+If the provider supplies contemporaneous equity quotes, add `bid,ask` columns and run the study with `--price-model bid_ask`. This prices buys at the ask and sells at the bid at entry and exit, including the public-release baseline. Missing or crossed quotes cause the candidate to be unpriced. The separate `--round-trip-cost-bps` remains an additional fee and slippage allowance; choose it accordingly to avoid counting spread twice. Bar opens do not prove that a displayed quote was executable at the requested size. Keep the default `bar_open` result clearly labeled as an optimistic research estimate.
+
 ## Run
 
 ```bash

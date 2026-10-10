@@ -26,6 +26,7 @@ def main() -> None:
     parser.add_argument("--hold-minutes", type=int, default=120)
     parser.add_argument("--latency-seconds", type=int, default=60)
     parser.add_argument("--round-trip-cost-bps", type=float, default=30)
+    parser.add_argument("--price-model", choices=["bar_open", "bid_ask"], default="bar_open")
     args = parser.parse_args()
     report = run_study(
         load_events(args.events),
@@ -38,6 +39,7 @@ def main() -> None:
         hold_minutes=args.hold_minutes,
         latency_seconds=args.latency_seconds,
         round_trip_cost_bps=args.round_trip_cost_bps,
+        price_model=args.price_model,
     )
     output = Path(args.output)
     output.parent.mkdir(parents=True, exist_ok=True)

@@ -47,6 +47,8 @@ class EquityBar:
     timestamp: datetime
     ticker: str
     open: float
+    bid: float | None = None
+    ask: float | None = None
 
 
 def load_events(path: str | Path) -> list[EventSpec]:
@@ -107,9 +109,17 @@ def load_equity_bars(path: str | Path) -> dict[str, list[EquityBar]]:
             opening_price = float(row["open"])
             if not math.isfinite(opening_price) or opening_price <= 0:
                 raise ValueError("equity open must be positive and finite")
+            bid = float(row["bid"]) if row.get("bid") else None
+            ask = float(row["ask"]) if row.get("ask") else None
+            if (bid is None) != (ask is None):
+                raise ValueError("equity bid and ask must both be supplied")
+            if bid is not None and (not math.isfinite(bid) or not math.isfinite(ask)
+                                    or not 0 < bid <= ask):
+                raise ValueError("equity bid/ask must be finite, positive, and ordered")
             ticker = row["ticker"]
             by_ticker.setdefault(ticker, []).append(EquityBar(
-                timestamp=parse_time(row["timestamp"]), ticker=ticker, open=opening_price
+                timestamp=parse_time(row["timestamp"]), ticker=ticker, open=opening_price,
+                bid=bid, ask=ask,
             ))
     for bars in by_ticker.values():
         bars.sort(key=lambda bar: bar.timestamp)
@@ -153,12 +163,27 @@ def first_signal(
     return None
 
 
-def next_open(bars: list[EquityBar], target: datetime, max_delay_minutes: int = 2) -> float | None:
+def next_bar(
+    bars: list[EquityBar], target: datetime, max_delay_minutes: int = 2
+) -> EquityBar | None:
     times = [bar.timestamp for bar in bars]
     index = bisect_left(times, target)
     if index >= len(bars) or bars[index].timestamp - target > timedelta(minutes=max_delay_minutes):
         return None
-    return bars[index].open
+    return bars[index]
+
+
+def next_open(bars: list[EquityBar], target: datetime, max_delay_minutes: int = 2) -> float | None:
+    bar = next_bar(bars, target, max_delay_minutes)
+    return bar.open if bar else None
+
+
+def _execution_price(bar: EquityBar, side: int, *, opening: bool, price_model: str) -> float | None:
+    if price_model == "bar_open":
+        return bar.open
+    if bar.bid is None or bar.ask is None:
+        return None
+    return bar.ask if (side == 1) == opening else bar.bid
 
 
 def evaluate_event(
@@ -173,6 +198,7 @@ def evaluate_event(
     hold_minutes: int,
     latency_seconds: int,
     round_trip_cost_bps: float,
+    price_model: str = "bar_open",
     placebo_offset_minutes: int = 60,
 ) -> dict:
     result: dict = {
@@ -231,20 +257,39 @@ def evaluate_event(
         "status": "missing_equity_bars",
     })
     latency = timedelta(seconds=latency_seconds)
-    entry = next_open(bars, quote.timestamp + latency)
-    exit_price = next_open(bars, quote.timestamp + timedelta(minutes=hold_minutes) + latency)
-    release_open = next_open(bars, event.release_timestamp + latency)
-    if entry is None or exit_price is None or release_open is None:
+    entry_bar = next_bar(bars, quote.timestamp + latency)
+    exit_bar = next_bar(bars, quote.timestamp + timedelta(minutes=hold_minutes) + latency)
+    release_bar = next_bar(bars, event.release_timestamp + latency)
+    if entry_bar is None or exit_bar is None or release_bar is None:
+        return result
+    entry = _execution_price(entry_bar, side, opening=True, price_model=price_model)
+    exit_price = _execution_price(exit_bar, side, opening=False, price_model=price_model)
+    baseline_entry = (
+        _execution_price(release_bar, event.release_direction, opening=True,
+                         price_model=price_model)
+        if event.release_direction is not None else None
+    )
+    baseline_exit = (
+        _execution_price(exit_bar, event.release_direction, opening=False,
+                         price_model=price_model)
+        if event.release_direction is not None else None
+    )
+    if entry is None or exit_price is None or (
+        event.release_direction is not None and (baseline_entry is None or baseline_exit is None)
+    ):
+        result["status"] = "missing_equity_quotes"
         return result
     cost = round_trip_cost_bps / 10000
     result.update({
         "status": "priced",
         "signal_net_bps": round(((exit_price / entry - 1) * side - cost) * 10000, 4),
-        "pre_signal_move_bps": round((entry / release_open - 1) * side * 10000, 4),
+        "pre_signal_move_bps": round((entry_bar.open / release_bar.open - 1) * side * 10000, 4),
+        "entry_price": entry,
+        "exit_price": exit_price,
     })
     if event.release_direction is not None:
         result["release_baseline_net_bps"] = round(
-            ((exit_price / release_open - 1) * event.release_direction - cost) * 10000, 4
+            ((baseline_exit / baseline_entry - 1) * event.release_direction - cost) * 10000, 4
         )
     return result
 
@@ -278,7 +323,8 @@ def _event_results(rows: list[dict]) -> list[dict]:
                 row["status"].startswith("missing_prediction") for row in contracts
             ),
             "missing_equity_contracts": sum(
-                row["status"] == "missing_equity_bars" for row in contracts
+                row["status"] in {"missing_equity_bars", "missing_equity_quotes"}
+                for row in contracts
             ),
         })
     return events
@@ -324,11 +370,14 @@ def run_study(
     hold_minutes: int = 120,
     latency_seconds: int = 60,
     round_trip_cost_bps: float = 30.0,
+    price_model: str = "bar_open",
 ) -> dict:
     if not 0 < threshold <= 1 or min(window_minutes, velocity_window_minutes, hold_minutes) <= 0:
         raise ValueError("threshold and windows must be positive")
     if latency_seconds < 0 or round_trip_cost_bps < 0 or volume_multiplier < 0:
         raise ValueError("latency and costs cannot be negative")
+    if price_model not in {"bar_open", "bid_ask"}:
+        raise ValueError("price_model must be bar_open or bid_ask")
     distinct_events = sorted({(event.release_timestamp, event.event_id) for event in events})
     split_index = max(1, int(len(distinct_events) * 0.7)) if distinct_events else 0
     train_keys = set(distinct_events[:split_index])
@@ -345,6 +394,7 @@ def run_study(
             hold_minutes=hold_minutes,
             latency_seconds=latency_seconds,
             round_trip_cost_bps=round_trip_cost_bps,
+            price_model=price_model,
         )
         row["split"] = "train" if (event.release_timestamp, event.event_id) in train_keys else "holdout"
         results.append(row)
@@ -364,6 +414,7 @@ def run_study(
                     hold_minutes=hold_minutes,
                     latency_seconds=trial_latency,
                     round_trip_cost_bps=round_trip_cost_bps,
+                    price_model=price_model,
                 )
                 for event in train_events
             ]
@@ -384,7 +435,9 @@ def run_study(
             "hold_minutes": hold_minutes,
             "latency_seconds": latency_seconds,
             "round_trip_cost_bps": round_trip_cost_bps,
-            "equity_price": "first bar open at or after target, at most two minutes late",
+            "equity_price": "first bar at or after target, at most two minutes late",
+            "price_model": price_model,
+            "bid_ask_rule": "buy at ask, sell at bid" if price_model == "bid_ask" else None,
         },
         "train": _event_summary(train_event_results),
         "holdout": _event_summary(holdout_event_results),

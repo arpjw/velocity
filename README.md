@@ -31,11 +31,15 @@ The example environment leaves market credentials blank. Public Kalshi polling c
 
 The collector writes connector status snapshots to `logs/connector_health.jsonl` every minute. Run `python -m scripts.check_collector_health` to check freshness and degraded connectors; it exits nonzero when the log is missing, stale, or unhealthy. This is a local status check, not an alerting service.
 
+An unexpected connector error now marks that connector degraded and retries it with bounded backoff while the other connectors continue. Optional connectors that return because they are unconfigured remain idle. Set `CONNECTOR_RESTART_SECONDS` to adjust the initial retry delay.
+
 To export observations for analysis:
 
 ```bash
 python -m scripts.export_observations --output data/observed-kxfed.csv
 ```
+
+To inspect the prospective log before exporting it, run `python -m scripts.audit_observation_log --output data/observation-audit.json`. The report hashes the input and lists receipt gaps, delayed records, source clock reversals, duplicate IDs, and malformed rows per source and ticker. `--start` and `--end` bound the receipt-time window and expose gaps at its edges; `--gap-seconds` sets the gap threshold. A long gap can mean a quiet market or a stopped collector, so compare it with the connector health log before classifying an outage. The audit is offline and does not notify anyone.
 
 Do not put broker keys or private account data in the repository.
 

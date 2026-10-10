@@ -320,6 +320,24 @@ async def _queue_replay_worker(
         was_open = is_open
 
 
+async def _connector_health_worker(registry: PrismRegistry, interval_seconds: float) -> None:
+    if interval_seconds <= 0:
+        raise ValueError("connector health interval must be positive")
+    path = Path(os.getenv("CONNECTOR_HEALTH_LOG_PATH", "logs/connector_health.jsonl"))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    while True:
+        health = registry.get_health_report()
+        snapshot = {"observed_at": datetime.now(tz=timezone.utc).isoformat(),
+                    "connectors": health}
+        with path.open("a") as file:
+            file.write(json.dumps(snapshot) + "\n")
+        for slug, report in health.items():
+            if report.get("status") != "ok":
+                logger.warning("connector %s status=%s: %s", slug, report.get("status"),
+                               report.get("message"))
+        await asyncio.sleep(interval_seconds)
+
+
 def _print_startup_banner(
     dry_run: bool,
     mode: str,
@@ -415,7 +433,9 @@ async def main() -> None:
             session_memory=session_memory,
         )
 
-    coroutines: list = [exit_manager.run()]
+    coroutines: list = [exit_manager.run(), _connector_health_worker(
+        registry, float(os.getenv("CONNECTOR_HEALTH_INTERVAL_SECONDS", "60"))
+    )]
 
     for connector in registry.get_all():
         async def on_connector_signal(sig: VelocitySignal, source: str = connector.metadata.slug) -> None:

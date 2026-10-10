@@ -29,6 +29,8 @@ python main.py --dry-run
 
 The example environment leaves market credentials blank. Public Kalshi polling can run without a key. Configure optional sources in `.env` only if you use them. The process runs until interrupted; `--dry-run` forces shadow mode even if the environment requests mock execution. Market observations go to `logs/market_observations.jsonl`, and candidate signals go to `logs/shadow_signals.jsonl`. No signal during a short run is a normal outcome.
 
+The collector writes connector status snapshots to `logs/connector_health.jsonl` every minute. Run `python -m scripts.check_collector_health` to check freshness and degraded connectors; it exits nonzero when the log is missing, stale, or unhealthy. This is a local status check, not an alerting service.
+
 To export observations for analysis:
 
 ```bash

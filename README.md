@@ -7,6 +7,7 @@ The default mode is **shadow**: it records market observations and candidate sig
 ## What is built
 
 - Kalshi public REST discovery of active, traded Fed contracts, plus polling and WebSocket parsing for current dollar-denominated price fields.
+- The Kalshi connector refreshes discovered markets every five minutes and reports observation freshness separately from signal time. `KALSHI_DISCOVERY_INTERVAL_SECONDS` and `KALSHI_STALE_SECONDS` adjust the refresh and stale thresholds.
 - Polymarket CLOB market subscription by resolved outcome asset ID.
 - Timestamped observation and shadow candidate logs. The export uses the later of exchange and receipt timestamps.
 - A point-in-time Fed event study using exact Kalshi market tickers and one-minute equity bars, with delayed entry, costs, prerelease checks, and chronological train and holdout summaries.

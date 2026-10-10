@@ -10,8 +10,11 @@ from signals.velocity import (
 )
 
 
+TEST_TIME = datetime(2026, 1, 1, tzinfo=timezone.utc)
+
+
 def make_point(minutes_ago: float, price: float, volume: int) -> PricePoint:
-    ts = datetime.now(tz=timezone.utc) - timedelta(minutes=minutes_ago)
+    ts = TEST_TIME - timedelta(minutes=minutes_ago)
     return PricePoint(timestamp=ts, price=price, volume=volume)
 
 
@@ -63,7 +66,7 @@ class TestComputeVelocity:
         assert v == pytest.approx(0.2 / 0.5)
 
     def test_returns_zero_when_all_points_outside_window(self) -> None:
-        points = [make_point(30, 0.5, 100), make_point(25, 0.7, 200)]
+        points = [make_point(31, 0.5, 100), make_point(25, 0.7, 200)]
         assert compute_velocity(points, 5) == 0.0
 
 

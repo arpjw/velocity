@@ -37,7 +37,7 @@ Do not put broker keys or private account data in the repository.
 
 ## Study a Fed release
 
-The study requires a manually reviewed manifest with the actual public release time, an exact `KXFED-...` market ticker, a chosen equity, and a prespecified direction mapping. Start with [the manifest template](research/events.example.csv). Provide a point-in-time equity CSV with `timestamp,ticker,open`, where timestamps mark the start of each one-minute UTC bar. See [research instructions](research/README.md) for the full input definitions and limitations.
+The study requires a manually reviewed manifest with the actual public release time, an exact `KXFED-...` market ticker, a chosen equity, a prespecified direction mapping, and source references. Start with [the manifest template](research/events.example.csv). Provide a point-in-time equity CSV with `timestamp,ticker,open`, where timestamps mark the start of each one-minute UTC bar. See [research instructions](research/README.md) for the full input definitions and limitations. Run `python -m scripts.audit_research_data` on the CSVs before interpreting a report; its coverage result does not establish a trading edge.
 
 ```bash
 python -m scripts.fetch_kalshi_history \

@@ -14,6 +14,9 @@ Copy `research/events.example.csv` to `data/events.csv`, then add one reviewed r
 | `equity_ticker` | Equity or ETF symbol |
 | `yes_up_equity` | `1` if rising Yes odds imply rising equity, `-1` if falling |
 | `release_direction` | Optional independently observed public release direction, `1` or `-1` |
+| `release_source` | Public release URL or archived publication reference used for the timestamp |
+| `contract_source` | Exact market rules URL or archived rules reference for the direction mapping |
+| `equity_source` | Minute data vendor/export, retrieval date, and raw/unadjusted status |
 
 `kalshi.csv` is produced by `python -m scripts.fetch_kalshi_history` and contains `timestamp,ticker,price,yes_bid,yes_ask,volume`. Prices are dollars on `[0,1]`; volume is cumulative per market. Candles are timestamped at the *end* of the minute. Replay uses the candle's last-trade price, matching the running Kalshi signal. It never uses a candle ending at the release time as its prerelease reference or as a postrelease signal.
 
@@ -27,8 +30,11 @@ Prospective observations include a schema version, stable observation ID, price 
 
 ```bash
 python -m scripts.fetch_kalshi_history --event-ticker KXFED-26OCT --start 2026-10-28T16:00:00Z --end 2026-10-28T22:00:00Z --output data/kxfed-26oct.csv
+python -m scripts.audit_research_data --events data/events.csv --kalshi-csv data/kxfed-26oct.csv --equity-csv data/equity-minute.csv --output data/coverage.json
 python -m scripts.run_event_study --events data/events.csv --kalshi-csv data/kxfed-26oct.csv --equity-csv data/equity-minute.csv --output data/report.json
 ```
+
+The audit writes a JSON report with input hashes, missing provenance, duplicate timestamps, prediction volume resets, gaps over five minutes, and missing equity minutes through the latest possible hypothetical exit. It returns a nonzero status when inputs are incomplete. The equity coverage rule assumes a continuous trading session; split or shorten the research window for sessions that cross a closure. `ready_for_study` means the CSVs pass these mechanical checks, not that their vendor availability times are independently proven or that the strategy works. Keep the original exports so their hashes can be checked later.
 
 The event date above is illustrative. Use the actual public release timestamp and a window with prerelease and postrelease observations. Supply multiple events before interpreting the train and later chronological holdout summaries.
 

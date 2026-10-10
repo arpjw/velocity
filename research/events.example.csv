@@ -1,1 +1,1 @@
-event_id,release_timestamp,prediction_ticker,equity_ticker,yes_up_equity,release_direction
+event_id,release_timestamp,prediction_ticker,equity_ticker,yes_up_equity,release_direction,release_source,contract_source,equity_source

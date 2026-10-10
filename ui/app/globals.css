@@ -203,6 +203,33 @@ button {
   padding: 0 48px;
 }
 
+.research-page { padding-top: 132px; padding-bottom: 96px; }
+.research-kicker, .research-assumptions { color: var(--neon); font: 12px var(--font-mono); letter-spacing: .08em; }
+.research-page h1 { font: clamp(40px, 6vw, 72px) var(--font-serif); margin: 16px 0; }
+.research-intro, .research-caveat { max-width: 740px; color: var(--text-secondary); line-height: 1.7; }
+.research-upload-grid, .research-summary-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin-top: 32px; }
+.research-upload, .research-summary { display: block; padding: 24px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; }
+.research-upload { font: 13px var(--font-mono); color: var(--text-primary); }
+.research-upload input { display: block; max-width: 100%; margin-top: 16px; color: var(--text-secondary); }
+.research-section { margin-top: 72px; }
+.research-section h2 { font: 32px var(--font-serif); margin-bottom: 20px; }
+.research-section p { line-height: 1.6; }
+.research-empty { color: var(--text-tertiary); }
+.research-good { color: var(--neon); }
+.research-error { color: var(--red); margin-top: 20px; }
+.research-summary h3 { color: var(--text-secondary); font: 12px var(--font-mono); text-transform: uppercase; margin-bottom: 14px; }
+.research-summary strong { font: 30px var(--font-serif); }
+.research-summary p { color: var(--text-secondary); margin-top: 14px; font-size: 13px; }
+.research-rows { margin-top: 24px; border-top: 1px solid var(--border); }
+.research-row { display: grid; grid-template-columns: 1fr 1fr 2fr; gap: 12px; padding: 16px 0; border-bottom: 1px solid var(--border); color: var(--text-secondary); font: 12px var(--font-mono); }
+.research-row strong { color: var(--text-primary); font-weight: 500; }
+.research-caveat { margin-top: 72px; font-size: 13px; }
+
+@media (max-width: 640px) {
+  .research-upload-grid, .research-summary-grid { grid-template-columns: 1fr; }
+  .research-row { grid-template-columns: 1fr; }
+}
+
 @media (max-width: 1024px) {
   .container {
     padding: 0 24px;

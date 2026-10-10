@@ -204,4 +204,13 @@ class PrismRegistry:
         return self._connectors.get(slug)
 
     def get_health_report(self) -> dict[str, dict]:
-        return {slug: conn.health_check() for slug, conn in self._connectors.items()}
+        report = {}
+        for slug, conn in self._connectors.items():
+            try:
+                report[slug] = conn.health_check()
+            except Exception as exc:
+                report[slug] = {
+                    "status": "degraded", "message": "health check failed",
+                    "failure_type": type(exc).__name__,
+                }
+        return report

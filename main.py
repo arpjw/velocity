@@ -9,12 +9,13 @@ import sys
 import traceback
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Awaitable, Callable
 
 from dotenv import load_dotenv
 
 load_dotenv()
 
-from connectors.base import PrismRegistry
+from connectors.base import PrismConnector, PrismRegistry
 from execution.exit_manager import ExitManager, TrackedPosition, yfinance_price_fetcher
 from execution.exposure_manager import ExposureManager
 from execution.mcp_client import make_client
@@ -320,13 +321,54 @@ async def _queue_replay_worker(
         was_open = is_open
 
 
-async def _connector_health_worker(registry: PrismRegistry, interval_seconds: float) -> None:
+async def _supervise_connector(
+    connector: PrismConnector,
+    tracker: VelocityTracker,
+    mapper: ContractMapper,
+    handle: Callable[[VelocitySignal], Awaitable[None]],
+    retrying: dict[str, dict],
+    *,
+    restart_seconds: float = 5,
+) -> None:
+    if restart_seconds <= 0:
+        raise ValueError("connector restart delay must be positive")
+    slug = connector.metadata.slug
+    failures = 0
+    while True:
+        try:
+            retrying.pop(slug, None)
+            await connector.start(tracker, mapper, handle)
+            return  # Some optional connectors intentionally return when unconfigured.
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            failures += 1
+            delay = min(restart_seconds * 2 ** min(failures - 1, 6), 300)
+            retrying[slug] = {
+                "status": "degraded",
+                "message": f"connector failed; retrying in {delay:g}s",
+                "failure_type": type(exc).__name__,
+                "failure_count": failures,
+            }
+            logger.error("connector %s failed (%s); retrying in %ss", slug,
+                         type(exc).__name__, delay)
+            await asyncio.sleep(delay)
+
+
+async def _connector_health_worker(
+    registry: PrismRegistry,
+    interval_seconds: float,
+    retrying: dict[str, dict] | None = None,
+) -> None:
     if interval_seconds <= 0:
         raise ValueError("connector health interval must be positive")
     path = Path(os.getenv("CONNECTOR_HEALTH_LOG_PATH", "logs/connector_health.jsonl"))
     path.parent.mkdir(parents=True, exist_ok=True)
     while True:
         health = registry.get_health_report()
+        if retrying:
+            for slug, state in retrying.items():
+                health[slug] = {**health.get(slug, {}), **state}
         snapshot = {"observed_at": datetime.now(tz=timezone.utc).isoformat(),
                     "connectors": health}
         with path.open("a") as file:
@@ -433,8 +475,12 @@ async def main() -> None:
             session_memory=session_memory,
         )
 
+    retrying: dict[str, dict] = {}
+    restart_seconds = float(os.getenv("CONNECTOR_RESTART_SECONDS", "5"))
+    if restart_seconds <= 0:
+        raise ValueError("CONNECTOR_RESTART_SECONDS must be positive")
     coroutines: list = [exit_manager.run(), _connector_health_worker(
-        registry, float(os.getenv("CONNECTOR_HEALTH_INTERVAL_SECONDS", "60"))
+        registry, float(os.getenv("CONNECTOR_HEALTH_INTERVAL_SECONDS", "60")), retrying
     )]
 
     for connector in registry.get_all():
@@ -442,7 +488,10 @@ async def main() -> None:
             sig.source = source
             await _on_signal(sig)
 
-        coroutines.append(connector.start(tracker, mapper, on_connector_signal))
+        coroutines.append(_supervise_connector(
+            connector, tracker, mapper, on_connector_signal, retrying,
+            restart_seconds=restart_seconds,
+        ))
 
     if os.getenv("OFF_HOURS_MODE", "suppress") == "queue":
         coroutines.append(

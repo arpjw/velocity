@@ -31,6 +31,8 @@ The example environment leaves market credentials blank. Public Kalshi polling c
 
 The collector writes connector status snapshots to `logs/connector_health.jsonl` every minute. Run `python -m scripts.check_collector_health` to check freshness and degraded connectors; it exits nonzero when the log is missing, stale, or unhealthy. This is a local status check, not an alerting service.
 
+An unexpected connector error now marks that connector degraded and retries it with bounded backoff while the other connectors continue. Optional connectors that return because they are unconfigured remain idle. Set `CONNECTOR_RESTART_SECONDS` to adjust the initial retry delay.
+
 To export observations for analysis:
 
 ```bash

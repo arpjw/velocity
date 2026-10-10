@@ -40,3 +40,23 @@ def test_missing_health_log_is_unhealthy(tmp_path: Path) -> None:
     assert check_health(tmp_path / "absent.jsonl") == {
         "ok": False, "reason": "health log missing"
     }
+
+
+@pytest.mark.asyncio
+async def test_retry_state_overrides_connector_health(tmp_path: Path, monkeypatch) -> None:
+    path = tmp_path / "health.jsonl"
+    monkeypatch.setenv("CONNECTOR_HEALTH_LOG_PATH", str(path))
+    registry = MagicMock()
+    registry.get_health_report.return_value = {"kalshi_fed": {"status": "ok"}}
+    retrying = {"kalshi_fed": {"status": "degraded", "message": "retrying"}}
+    task = asyncio.create_task(_connector_health_worker(registry, 60, retrying))
+    try:
+        for _ in range(20):
+            if path.exists() and path.stat().st_size:
+                break
+            await asyncio.sleep(0.01)
+        assert check_health(path)["degraded_connectors"] == ["kalshi_fed"]
+    finally:
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task

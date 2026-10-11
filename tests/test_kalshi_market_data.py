@@ -66,3 +66,23 @@ def test_fetch_event_uses_exact_market_tickers(monkeypatch) -> None:
     rows = fetch_event_candles(client, "KXFED-26OCT", 1699999000, 1700001000, historical=False)
     assert len(rows) == 1 and rows[0]["ticker"] == "KXFED-26OCT-T4.25"
     assert "series/KXFED/markets/KXFED-26OCT-T4.25/candlesticks" in client.get.call_args_list[1].args[0]
+
+
+def test_fetch_event_retries_rate_limited_candle_request(monkeypatch) -> None:
+    request = httpx.Request("GET", "https://example.com")
+    client = MagicMock()
+    client.get.side_effect = [
+        httpx.Response(200, json={"markets": [{"ticker": "KXFED-26OCT-T4.25"}], "cursor": ""}, request=request),
+        httpx.Response(429, headers={"Retry-After": "1"}, request=request),
+        httpx.Response(200, json={"candlesticks": [
+            {"end_period_ts": 1700000000, "price": {"close_dollars": "0.5600"}, "volume_fp": "12.50"}
+        ]}, request=request),
+    ]
+    delays = []
+    monkeypatch.setattr("scripts.fetch_kalshi_history.time.sleep", delays.append)
+
+    rows = fetch_event_candles(client, "KXFED-26OCT", 1699999000, 1700001000, historical=False)
+
+    assert len(rows) == 1
+    assert client.get.call_count == 3
+    assert delays[0] == 1.0

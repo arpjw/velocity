@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import math
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -32,6 +33,22 @@ def candle_to_row(ticker: str, candle: dict, cumulative_volume: float) -> dict |
     }
 
 
+def _get_with_retry(client: httpx.Client, url: str, params: dict) -> httpx.Response:
+    for attempt in range(4):
+        response = client.get(url, params=params)
+        if response.status_code != 429 or attempt == 3:
+            response.raise_for_status()
+            return response
+        try:
+            delay = float(response.headers.get("Retry-After", ""))
+        except ValueError:
+            delay = float(2 ** attempt)
+        if not math.isfinite(delay):
+            delay = float(2 ** attempt)
+        time.sleep(min(30.0, max(1.0, delay)))
+    raise RuntimeError("unreachable Kalshi retry state")
+
+
 def fetch_event_candles(
     client: httpx.Client,
     event_ticker: str,
@@ -47,8 +64,7 @@ def fetch_event_candles(
     while True:
         if cursor:
             params["cursor"] = cursor
-        response = client.get(f"{KALSHI_BASE_URL}/{prefix}", params=params)
-        response.raise_for_status()
+        response = _get_with_retry(client, f"{KALSHI_BASE_URL}/{prefix}", params)
         payload = response.json()
         tickers.extend(str(m["ticker"]) for m in payload.get("markets", []) if m.get("ticker"))
         cursor = payload.get("cursor") or ""
@@ -61,18 +77,18 @@ def fetch_event_candles(
         else:
             series = event_ticker.split("-")[0]
             path = f"series/{series}/markets/{ticker}/candlesticks"
-        response = client.get(
+        response = _get_with_retry(
+            client,
             f"{KALSHI_BASE_URL}/{path}",
-            params={"start_ts": start_ts, "end_ts": end_ts, "period_interval": 1},
+            {"start_ts": start_ts, "end_ts": end_ts, "period_interval": 1},
         )
-        response.raise_for_status()
         cumulative_volume = 0.0
         for candle in response.json().get("candlesticks", []):
             cumulative_volume += float(candle.get("volume_fp", candle.get("volume", 0)) or 0)
             row = candle_to_row(ticker, candle, cumulative_volume)
             if row is not None:
                 rows.append(row)
-        time.sleep(0.25)
+        time.sleep(0.5)
     return sorted(rows, key=lambda row: (row["timestamp"], row["ticker"]))
 
 

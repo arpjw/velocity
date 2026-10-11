@@ -6,7 +6,18 @@ Status: input collection and protocol review. There is no equity minute dataset,
 
 The [July 29 Fed statement](https://www.federalreserve.gov/monetarypolicy/fomcpresconf20260729.htm) was released at 2:00 p.m. Eastern, or 18:00 UTC. The [July `KXFED-26JUL-T3.75` market](https://external-api.kalshi.com/trade-api/v2/historical/markets/KXFED-26JUL-T3.75) closed at 17:55 UTC. The other July meeting markets inspected had the same close time. The archived minute export from 16:00 to 18:30 UTC contains 124 candles across six July markets and no candle after the public release. A postrelease signal study cannot use contracts that settle on that same meeting.
 
-Contracts for a later meeting can stay open across the current statement. An exploratory July 29 export of September contracts has 14 candles across three markets, but none has a trade in the ten minutes before release. An exploratory September 16 export of October contracts has 27 candles across four markets. Only `KXFED-26OCT-T3.75` has both a prerelease trade within ten minutes and a trade within fifteen minutes after release. Its largest observed gap in the 60-minute prerelease through 15-minute postrelease window is 1,740 seconds, exceeding the existing five-minute audit limit. These screens used market data already observed, so they are exploratory and cannot be presented as an untouched holdout.
+Contracts for a later meeting can stay open across the current statement. The public minute-candle exports are sparse across six exploratory 2026 release windows:
+
+| Public statement | Later-meeting event | Candle rows | Markets with candles | Markets with a trade in both the prior 10 and next 15 minutes |
+| --- | --- | ---: | ---: | ---: |
+| January 28 | `KXFED-26MAR` | 5 | 2 | 0 |
+| March 18 | `KXFED-26APR` | 2 | 1 | 0 |
+| April 29 | `KXFED-26JUN` | 7 | 2 | 0 |
+| June 17 | `KXFED-26JUL` | 6 | 5 | 0 |
+| July 29 | `KXFED-26SEP` | 14 | 3 | 0 |
+| September 16 | `KXFED-26OCT` | 27 | 4 | 1 |
+
+The sole market with trades on both sides, `KXFED-26OCT-T3.75`, has a 1,740-second gap within the 60-minute prerelease through 15-minute postrelease window. That exceeds the existing five-minute audit limit. None of these six exports supplies a complete trade-candle event under the current study rule. These screens used market data already observed, so they are exploratory and cannot be presented as an untouched holdout. Sparse candles do not prove the market itself was inactive; they do show that this historical last-trade feed is insufficient for the current replay without further data.
 
 Local raw exports and the first shadow diagnostic logs are under `results/research/2026-10-11/`. The first public REST run is labeled `pre-fix` because it repeatedly recorded unchanged last-trade prices as fresh observations. Do not use that log for a signal study.
 

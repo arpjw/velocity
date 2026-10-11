@@ -1,12 +1,15 @@
 import asyncio
 import concurrent.futures
 import json
+import logging
 import os
 import subprocess
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Protocol, Union
+
+logger = logging.getLogger(__name__)
 
 from mcp import ClientSession
 from mcp.client.streamable_http import streamablehttp_client
@@ -137,6 +140,7 @@ class LiveMCPClient:
         if self._account_number:
             return self._account_number
         raw = self._parse(self._run(self._call_tool("get_accounts", {})))
+        logger.debug("get_accounts raw response: %s", raw)
         data = raw.get("data", raw) if isinstance(raw, dict) else raw
         accounts: list[dict] = []
         if isinstance(data, dict):

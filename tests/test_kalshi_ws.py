@@ -13,6 +13,12 @@ from signals.kalshi_poller import KalshiPoller
 from signals.velocity import VelocityTracker
 
 
+@pytest.fixture(autouse=True)
+def isolated_logs(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("OBSERVATION_LOG_PATH", str(tmp_path / "observations.jsonl"))
+    monkeypatch.setattr("signals.kalshi_poller.SIGNAL_LOG_PATH", tmp_path / "signals.jsonl")
+
+
 def make_rsa_key(tmp_path: Path) -> str:
     key = rsa.generate_private_key(
         public_exponent=65537,
@@ -141,6 +147,35 @@ class TestWsMessageParsing:
             await poller._handle_ws_message(raw, capture)
 
         assert len(signals) == 0
+
+
+@pytest.mark.asyncio
+async def test_rest_repeated_last_trade_is_reference_until_volume_increases(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    log_path = tmp_path / "observations.jsonl"
+    monkeypatch.setenv("OBSERVATION_LOG_PATH", str(log_path))
+    tracker = VelocityTracker(threshold=0.01)
+    poller = KalshiPoller(
+        api_key="test-key", tracked_tickers=["KXFED"], tracker=tracker,
+        private_key_path=make_rsa_key(tmp_path), use_websocket=False,
+    )
+    poller._fetch_market = AsyncMock(side_effect=[
+        {"last_price_dollars": "0.45", "volume_fp": "100"},
+        {"last_price_dollars": "0.45", "volume_fp": "100"},
+        {"last_price_dollars": "0.50", "volume_fp": "110"},
+    ])
+    on_signal = AsyncMock()
+
+    for _ in range(3):
+        await poller.poll_once(on_signal)
+
+    records = [json.loads(line) for line in log_path.read_text().splitlines()]
+    assert [record["price_kind"] for record in records] == [
+        "reference", "reference", "last_trade",
+    ]
+    assert [point.price for point in tracker._history["KXFED"]] == [0.50]
+    on_signal.assert_not_called()
 
 
 class TestWsFallbackToRest:

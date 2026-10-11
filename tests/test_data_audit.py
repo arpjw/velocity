@@ -1,7 +1,9 @@
+import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from research.data_audit import audit_dataset
+from scripts.audit_research_data import main as audit_main
 
 
 RELEASE = datetime(2026, 1, 1, 14, tzinfo=timezone.utc)
@@ -57,3 +59,21 @@ def test_duplicate_prediction_timestamp_fails_audit(tmp_path: Path) -> None:
     report = audit_dataset(*paths)
     assert "duplicate_prediction_timestamps" in report["global_issues"]
     assert report["ready_for_study"] is False
+
+
+def test_audit_cli_uses_prespecified_shorter_hold(tmp_path: Path, monkeypatch) -> None:
+    events, quotes, equity = _write_dataset(tmp_path)
+    equity.write_text("".join(equity.read_text().splitlines(keepends=True)[:108]))
+    output = tmp_path / "coverage.json"
+    monkeypatch.setattr("sys.argv", [
+        "audit_research_data", "--events", str(events),
+        "--kalshi-csv", str(quotes), "--equity-csv", str(equity),
+        "--hold-minutes", "90", "--output", str(output),
+    ])
+
+    audit_main()
+
+    report = json.loads(output.read_text())
+    assert report["ready_for_study"] is True
+    assert report["assumptions"]["hold_minutes"] == 90
+    assert audit_dataset(events, quotes, equity)["ready_for_study"] is False

@@ -1,11 +1,18 @@
 import asyncio
 import json
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from signals.polymarket_poller import PolymarketPoller
 from signals.velocity import VelocityTracker
+
+
+@pytest.fixture(autouse=True)
+def isolated_logs(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("OBSERVATION_LOG_PATH", str(tmp_path / "observations.jsonl"))
+    monkeypatch.setattr("signals.polymarket_poller.SIGNAL_LOG_PATH", tmp_path / "signals.jsonl")
 
 
 def make_poller(use_websocket=True) -> PolymarketPoller:

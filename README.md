@@ -45,23 +45,31 @@ Do not put broker keys or private account data in the repository.
 
 ## Study a Fed release
 
-The study requires a manually reviewed manifest with the actual public release time, an exact `KXFED-...` market ticker, a chosen equity, a prespecified direction mapping, and source references. Start with [the manifest template](research/events.example.csv). Provide a point-in-time equity CSV with `timestamp,ticker,open`, where timestamps mark the start of each one-minute UTC bar. See [research instructions](research/README.md) for the full input definitions and limitations. Run `python -m scripts.audit_research_data` on the CSVs before interpreting a report; its coverage result does not establish a trading edge.
+The study requires a manually reviewed manifest with the actual public release time, an exact `KXFED-...` market ticker that remains open after that release, a chosen equity, a prespecified direction mapping, and source references. Same-meeting Fed contracts inspected so far close before the statement, so the initial postrelease screen uses contracts for a later meeting. Start with [the manifest template](research/events.example.csv). Provide a point-in-time equity CSV with `timestamp,ticker,open`, where timestamps mark the start of each one-minute UTC bar. See [research instructions](research/README.md) and [field notes](research/field_notes_2026-10-11.md) for the input definitions and current data limitations. Run `python -m scripts.audit_research_data` on the CSVs before interpreting a report; its coverage result does not establish a trading edge.
 
 ```bash
 python -m scripts.fetch_kalshi_history \
-  --event-ticker KXFED-26OCT \
-  --start 2026-10-08T16:00:00Z \
-  --end 2026-10-08T22:00:00Z \
-  --output data/kxfed-event.csv
+  --event-ticker KXFED-26DEC \
+  --start 2026-10-28T16:00:00Z \
+  --end 2026-10-28T18:30:00Z \
+  --output data/kxfed-26dec-on-oct28.csv
+
+python -m scripts.audit_research_data \
+  --events data/events.csv \
+  --kalshi-csv data/kxfed-26dec-on-oct28.csv \
+  --equity-csv data/equity-minute.csv \
+  --hold-minutes 90 \
+  --output data/coverage.json
 
 python -m scripts.run_event_study \
   --events data/events.csv \
-  --kalshi-csv data/kxfed-event.csv \
+  --kalshi-csv data/kxfed-26dec-on-oct28.csv \
   --equity-csv data/equity-minute.csv \
+  --hold-minutes 90 \
   --output data/event-study-report.json
 ```
 
-The dates above show command syntax; choose a real release and its matching market. Use `--historical` with the fetch command for archived markets. The study replays the running velocity rule, which defaults to 0.15 probability points per minute over a five-minute rolling window. It looks for signals in the fifteen minutes after release, then assumes sixty seconds of entry latency, thirty basis points of round trip cost, and a two-hour horizon. These are research assumptions, not optimized trading parameters. Do not interpret a positive result from a few correlated markets or a single release as evidence of an edge.
+The October 28 example is a future collection plan as of October 11, 2026. Choose the exact contracts and verify their close times before the release. Use `--historical` with the fetch command for archived markets. The study replays the running velocity rule, which defaults to 0.15 probability points per minute over a five-minute rolling window. It looks for signals in the fifteen minutes after release, then assumes sixty seconds of entry latency and thirty basis points of round trip cost. Its default two-hour horizon can extend beyond the equity close for a 2:00 p.m. statement; the example prespecifies 90 minutes and must use the same value in the coverage audit. These are research assumptions, not optimized trading parameters. Do not interpret a positive result from a few correlated markets or a single release as evidence of an edge.
 
 ## Current limits and next decisions
 

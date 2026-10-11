@@ -2,6 +2,7 @@ import asyncio
 import base64
 import json
 import logging
+import math
 import os
 import time
 from datetime import datetime, timezone
@@ -115,6 +116,7 @@ class KalshiPoller:
         self._tracker = tracker
         self._use_websocket = use_websocket
         self._on_observation = on_observation
+        self._last_rest_volume: dict[str, float] = {}
         private_key_path = private_key_path or os.getenv("KALSHI_PRIVATE_KEY_PATH")
         self._private_key = _load_private_key(private_key_path) if private_key_path else None
         if not api_key or self._private_key is None:
@@ -269,18 +271,25 @@ class KalshiPoller:
                 volume_value = float(volume)
             except (TypeError, ValueError):
                 continue
-            if not 0 <= price_value <= 1:
+            if not 0 <= price_value <= 1 or not math.isfinite(volume_value) or volume_value < 0:
                 continue
-            point = PricePoint(timestamp=now, price=price_value, volume=volume_value)
+            previous_volume = self._last_rest_volume.get(ticker)
+            new_trade = previous_volume is not None and volume_value > previous_volume
+            if previous_volume is not None and volume_value < previous_volume:
+                logger.warning("Kalshi REST volume counter decreased for %s", ticker)
+            self._last_rest_volume[ticker] = volume_value
             if not append_observation(
                 source="kalshi", ticker=ticker, source_timestamp=now,
                 price=price_value, volume=volume_value,
                 bid=market.get("yes_bid_dollars"), ask=market.get("yes_ask_dollars"),
-                price_kind="last_trade",
+                price_kind="last_trade" if new_trade else "reference",
             ):
                 continue
             if self._on_observation:
                 self._on_observation(datetime.now(tz=timezone.utc))
+            if not new_trade:
+                continue
+            point = PricePoint(timestamp=now, price=price_value, volume=volume_value)
             signal = self._tracker.update(ticker, point)
             if signal is not None:
                 _log_signal(signal)
